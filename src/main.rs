@@ -61,9 +61,14 @@ const Z_BITS: StackInt = 4;
 struct Stack(StackInt);
 
 impl Stack {
+
+    fn new() -> Stack {
+        Stack(0)
+    }
+
     fn from_int(t: u16) -> Stack {
         assert!(t < (NUM_COPIES as u16 + 1).pow(PIECE_TYPES as u32));
-        let mut out = Stack(0);
+        let mut out = Self::new();
         let mut t = t;
         for i in 0.. {
             if t == 0 {
@@ -136,6 +141,30 @@ impl Stack {
                         .map(|i| i + 1)
                         .unwrap_or(0)
     }
+
+    // Tries to place this stack onto the bottom stack
+    //
+    // Returns None if we run out of pieces, but performs no
+    // other validity checking.
+    fn onto(&self, bottom: &Stack) -> Option<Stack> {
+        let mut out = Self::new();
+
+        let h = bottom.height();
+        for t in 0..PIECE_TYPES {
+            if self.placed(t) + bottom.placed(t) > NUM_COPIES {
+                return None;
+            }
+            for i in 0..NUM_COPIES {
+                if let Some(z) = self.get_z(t * NUM_COPIES + i) {
+                    out.place(t, z + h);
+                }
+                if let Some(z) = bottom.get_z(t * NUM_COPIES + i) {
+                    out.place(t, z);
+                }
+            }
+        }
+        return Some(out);
+    }
 }
 
 fn main() {
@@ -195,20 +224,20 @@ mod tests {
 
     #[test]
     fn stack_place() {
-        let mut s = Stack(0);
+        let mut s = Stack::new();
         s.place(0, 0);
         assert_eq!(s.0, 1);
         s.place(0, 0);
         assert_eq!(s.0, 1 | (1 << Z_BITS));
 
         // Test order-independence
-        let mut a = Stack(0);
+        let mut a = Stack::new();
         a.place(4, 3);
         a.place(4, 5);
         a.place(5, 1);
         a.place(5, 2);
 
-        let mut b = Stack(0);
+        let mut b = Stack::new();
         b.place(5, 2);
         b.place(4, 5);
         b.place(4, 3);
@@ -219,12 +248,42 @@ mod tests {
 
     #[test]
     fn stack_get_z() {
-        let mut s = Stack(0);
+        let mut s = Stack::new();
         s.place(0, 0);
         assert_eq!(s.get_z(0), Some(0));
         assert_eq!(s.get_z(1), None);
 
         s.place(5, 6);
         assert_eq!(s.get_z(5 * NUM_COPIES), Some(6));
+    }
+
+    #[test]
+    fn stack_placed() {
+        let mut s = Stack::new();
+        s.place(0, 0);
+        s.place(1, 2);
+        s.place(1, 3);
+        assert_eq!(s.placed(0), 1);
+        assert_eq!(s.placed(1), 2);
+        assert_eq!(s.placed(2), 0);
+    }
+
+    #[test]
+    fn stack_onto() {
+        let mut a = Stack::new();
+        a.place(0, 0);
+        a.place(1, 2);
+        a.place(1, 3);
+
+        let mut b = Stack::new();
+        b.place(0, 0);
+
+        let c = a.onto(&b);
+        assert!(c.is_some());
+        assert_eq!(c.unwrap().height(), a.height() + b.height());
+
+        let mut b = Stack::new();
+        b.place(1, 0);
+        assert_eq!(a.onto(&b), None);
     }
 }
