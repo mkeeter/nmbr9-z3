@@ -113,11 +113,11 @@ impl Stack {
     // which deduplicates pieces to ensure consistent ordering.
     fn set_z(&mut self, i: u8, z: u8) {
         assert!(i < PIECE_COUNT);
-        assert!(z < (1 << Z_BITS));
+        assert!(z < ((1 << Z_BITS) - 1));
 
         let offset = i as StackInt * Z_BITS;
         self.0 &= !(0xF << offset);
-        self.0 |=  (z as StackInt) << offset;
+        self.0 |=  (z as StackInt + 1) << offset;
     }
 
     // Returns the number of pieces with shape t that have been placed
@@ -172,4 +172,24 @@ fn main() {
         }
     }
     println!("Got count {}", count);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stack_from_int() {
+        let s = Stack::from_int(0);
+        assert_eq!(s.0, 0);
+
+        let s = Stack::from_int(1);
+        assert_eq!(s.0, 1);
+
+        let s = Stack::from_int(2);
+        assert_eq!(s.0, 1 | (1 << Z_BITS));
+
+        let s = Stack::from_int(NUM_COPIES as u16 + 1);
+        assert_eq!(s.0, (1 << (NUM_COPIES as StackInt * Z_BITS)));
+    }
 }
