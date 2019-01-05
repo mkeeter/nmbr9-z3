@@ -77,34 +77,59 @@ impl Stack {
         out
     }
 
-    // Sets the z position a particular piece
-    fn place(&mut self, i: u8, level: u8) {
-        assert!(i < PIECE_TYPES);
-        for j in (i * NUM_COPIES)..((i + 1) * NUM_COPIES) {
-            if self.get_z(i * NUM_COPIES + j).is_none() {
-                self.0 |= (level as StackInt + 1) <<
-                          (((i as StackInt * NUM_COPIES as StackInt) + j as StackInt) * Z_BITS);
+    // Places an instance of a particular piece type,
+    // maintaining sorted order among that type so that
+    // place doesn't lead to order-dependent values.
+    fn place(&mut self, t: u8, level: u8) {
+        assert!(t < PIECE_TYPES);
+
+        let mut levels = [0xFF; NUM_COPIES as usize];
+        let mut n = 0;
+        while n != NUM_COPIES {
+            if let Some(z) = self.get_z(t * NUM_COPIES + n) {
+                levels[n as usize] = z;
+                n += 1;
+            } else {
                 break;
             }
+        }
+        assert!(n != NUM_COPIES);
+        levels[n as usize] = level;
+        levels.sort();
+
+        for i in 0..=n {
+            self.set_z(t * NUM_COPIES + i, levels[i as usize]);
         }
     }
 
     // Returns the z position a particular piece
     fn get_z(&self, i: u8) -> Option<u8> {
         assert!(i < PIECE_COUNT);
-        (((self.0 >> (i as StackInt * Z_BITS)) & 0xF) as u8).checked_sub(1)
+        ((self.0 >> (i as StackInt * Z_BITS)) as u8 & 0xF).checked_sub(1)
+    }
+
+    // Returns the z position a particular piece
+    // This is a low-level utility; you should probably call place() instead,
+    // which deduplicates pieces to ensure consistent ordering.
+    fn set_z(&mut self, i: u8, z: u8) {
+        assert!(i < PIECE_COUNT);
+        assert!(z < (1 << Z_BITS));
+
+        let offset = i as StackInt * Z_BITS;
+        self.0 &= !(0xF << offset);
+        self.0 |=  (z as StackInt) << offset;
     }
 
     // Returns the number of pieces with shape t that have been placed
-    // (this is always in the range 0 to 2, inclusive)
+    // (this is always in the range 0 to NUM_COPIES, inclusive)
     fn placed(&self, t: u8) -> u8 {
         assert!(t < PIECE_TYPES);
-        (0..NUM_COPIES).filter_map(
-            |i| self.get_z(t * NUM_COPIES + i)).count() as u8
+        (0..NUM_COPIES)
+            .filter_map(|i| self.get_z(t * NUM_COPIES + i))
+            .count() as u8
     }
 
     // Returns the total height of this stack, assuming it is well-constructed
-    // If there no pieces placed, returns 0
     fn height(&self) -> u8 {
         (0..PIECE_COUNT).filter_map(|i| self.get_z(i))
                         .max()
@@ -114,6 +139,7 @@ impl Stack {
 }
 
 fn main() {
+    // stacks[i] is all of the stackups of height i + 1
     let mut stacks = vec![
         (0..(NUM_COPIES as u16 + 1).pow(PIECE_TYPES as u32))
         .map(Stack::from_int)
