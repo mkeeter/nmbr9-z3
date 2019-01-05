@@ -1,6 +1,14 @@
 #[macro_use] extern crate lazy_static;
+#[macro_use] extern crate itertools;
+
+extern crate array_init;
+use array_init::array_init;
+
+extern crate z3;
+use z3::*;
 
 use std::collections::HashSet;
+use std::fmt;
 
 // PIECE_TYPES is the number of unique piece shapes
 const PIECE_TYPES: u8 = 10;
@@ -12,7 +20,7 @@ const NUM_COPIES: u8 = 2;
 const PIECE_COUNT: u8 = NUM_COPIES * PIECE_TYPES;
 
 lazy_static! {
-pub static ref PIECE_SHAPES: [Vec<(u32, u32)>; PIECE_TYPES as usize] = [
+pub static ref PIECE_SHAPES: [Vec<(i32, i32)>; PIECE_TYPES as usize] = [
     // 0
     vec![(0, 0), (1, 0), (2, 0), (0, 1), (2, 1), (0, 2), (2, 2), (0, 3), (1, 3), (2, 3)],
     // 1
@@ -36,13 +44,40 @@ pub static ref PIECE_SHAPES: [Vec<(u32, u32)>; PIECE_TYPES as usize] = [
 ];
 
 
-pub static ref PIECE_AREA: [u8; PIECE_TYPES as usize] = {
+pub static ref TILE_COUNT: [u8; PIECE_TYPES as usize] = {
     let mut out = [0; PIECE_TYPES as usize];
     for (i, p) in PIECE_SHAPES.iter().enumerate() {
         out[i] = p.len() as u8;
     }
     return out;
 };
+
+pub static ref ADJACENT_TILES: [Vec<(i32, i32)>; PIECE_TYPES as usize] = {
+    let mut out: [Vec<_>; PIECE_TYPES as usize] = array_init(|_| vec![]);
+    for (i, p) in PIECE_SHAPES.iter().enumerate() {
+        let pts = p.iter().cloned().collect::<HashSet<_>>();
+        let adj = iproduct!(p.iter(), [(1, 0), (-1, 0), (0, 1), (0, -1)].iter())
+            .map(|((px, py), (dx, dy))| (px + dx, py + dy))
+            .collect::<HashSet<_>>();
+        out[i] = adj.difference(&pts).cloned().collect();
+    }
+    out
+};
+
+pub static ref COLLISION_TILES: [Vec<(i32, i32)>; PIECE_TYPES as usize] = {
+    let mut out: [Vec<_>; PIECE_TYPES as usize] = array_init(|_| vec![]);
+    for (i, p) in PIECE_SHAPES.iter().enumerate() {
+        let pts = p.iter().cloned().collect::<HashSet<_>>();
+        out[i] = p.iter()
+            .filter(|(x, y)|
+                [(1, 0), (-1, 0), (0, 1), (0, -1)].iter()
+                .any(|(dx, dy)| !pts.contains(&(x + dx, y + dy))))
+            .cloned()
+            .collect();
+    }
+    out
+};
+
 }   // end of lazy_static
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -61,7 +96,6 @@ const Z_BITS: StackInt = 4;
 struct Stack(StackInt);
 
 impl Stack {
-
     fn new() -> Stack {
         Stack(0)
     }
@@ -142,38 +176,28 @@ impl Stack {
                         .unwrap_or(0)
     }
 
+    // Returns the area of a particular layer
+    fn area(&self, z: u8) -> u32 {
+        (0..PIECE_COUNT)
+            .filter(|i| self.get_z(*i).unwrap_or(0xFF) == z)
+            .map(|i| TILE_COUNT[(i / NUM_COPIES) as usize] as u32)
+            .sum()
+    }
+
     // Tries to place this stack onto the bottom stack
     //
     // Returns None if we run out of pieces, but performs no
     // other validity checking.
     fn onto(&self, bottom: &Stack) -> Option<Stack> {
-        if bottom.0 == 0 {
-            return None;
-        }
-
         // First sanity-check: return None if we run out of pieces
         for t in 0..PIECE_TYPES {
             if self.placed(t) + bottom.placed(t) > NUM_COPIES {
                 return None;
             }
         }
-        // Second sanity-check: return None if there's an area mismatch
-        let my_base_area: u32 = (0..PIECE_COUNT)
-            .filter(|i| self.get_z(*i).unwrap_or(0xFF) == 0)
-            .map(|i| PIECE_AREA[(i / NUM_COPIES) as usize] as u32)
-            .sum();
-
-        let h = bottom.height();
-        let bottom_top_area: u32 = (0..PIECE_COUNT)
-            .filter(|i| bottom.get_z(*i).unwrap_or(0xFF) == h - 1)
-            .map(|i| PIECE_AREA[(i / NUM_COPIES) as usize] as u32)
-            .sum();
-
-        if bottom_top_area < my_base_area {
-            return None;
-        }
 
         let mut out = Stack::new();
+        let h = bottom.height();
         for t in 0..PIECE_TYPES {
             for i in 0..NUM_COPIES {
                 if let Some(z) = self.get_z(t * NUM_COPIES + i) {
@@ -186,7 +210,56 @@ impl Stack {
         }
         return Some(out);
     }
+
+    fn validate(&self) -> bool {
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+        let int_set_sort = ctx.set_sort(&ctx.int_sort());
+
+        let p = Placement::new(&ctx, &int_set_sort, 0);
+        false
+    }
 }
+
+////////////////////////////////////////////////////////////////////////////////
+
+struct Placement<'a> {
+    x: Ast<'a>,     /* int */
+    y: Ast<'a>,     /* int */
+    rot: Ast<'a>,   /* int, 0-3 */
+
+    tiles: Ast<'a>, /* set */
+    collision: Ast<'a>,  /* set */
+    adjacent: Ast<'a>,  /* set */
+}
+
+impl<'a> Placement<'a> {
+    fn new(ctx: &'a Context, int_set: &'a Sort, i: u8) -> Placement<'a> {
+        let x = ctx.named_int_const(&format!("x_{}", i));
+        let y = ctx.named_int_const(&format!("y_{}", i));
+        let rot = ctx.named_int_const(&format!("rot_{}", i));
+
+        // Build our collision sets
+        let tiles = ctx.named_const(&format!("tiles_{}", i), &int_set);
+        let adjacent = ctx.named_const(&format!("adjacent_{}", i), &int_set);
+        let collision = ctx.named_const(&format!("collision_{}", i), &int_set);
+
+        let t = i / NUM_COPIES;
+
+        Placement {
+            x: x,
+            y: y,
+            rot: rot,
+
+            tiles: tiles,
+            adjacent: adjacent,
+            collision: collision,
+        }
+    }
+
+}
+
+////////////////////////////////////////////////////////////////////////////////
 
 fn main() {
     // stacks[i] is all of the stackups of height i + 1
@@ -194,6 +267,9 @@ fn main() {
         (0..(NUM_COPIES as u16 + 1).pow(PIECE_TYPES as u32))
         .map(Stack::from_int)
         .collect::<HashSet<_>>()];
+
+    let s = Stack::from_int(4233);
+    s.validate();
 
     let mut count = 0;
     for (i, a) in stacks.last().unwrap().iter().enumerate() {
@@ -229,8 +305,8 @@ fn main() {
             let n = NUM_COPIES as u16 + 1;
             while i > 0 || j > 0 {
                 pieces_below += j % n;
-                tiles_above += PIECE_AREA[t] as u16 * (i % n);
-                tiles_below += PIECE_AREA[t] as u16 * (j % n);
+                tiles_above += TILE_COUNT[t] as u16 * (i % n);
+                tiles_below += TILE_COUNT[t] as u16 * (j % n);
                 compatible &= (i % n) + (j % n) < n;
                 i /= n;
                 j /= n;
