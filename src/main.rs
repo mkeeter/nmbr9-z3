@@ -221,8 +221,23 @@ impl Stack {
         // Z3 crashes (reported as issue #7 in prove-rs/z3.rs)
         let _dummy = ctx.named_const("set", &int_set_sort);
 
-        let p = Placement::new(0, &ctx, &int_sort);
-        let tiles = TileSets::new(0, &p, &ctx, &int_set_sort);
+        // Build free variables for every active piece
+        let placements = (0..PIECE_COUNT)
+            .filter(|&i| self.get_z(i).is_some())
+            .map(|i| Placement::new(i, &ctx))
+            .collect::<Vec<_>>();
+
+        let h = self.height();
+        let mut layers = Vec::new();
+        for _ in 0..h {
+            layers.push(Vec::new());
+        }
+
+        for p in placements.iter() {
+            layers[self.get_z(p.i).unwrap() as usize].push(
+                TileSets::new(p.i, p, &ctx, &int_set_sort));
+        }
+
         false
     }
 }
@@ -230,18 +245,20 @@ impl Stack {
 ////////////////////////////////////////////////////////////////////////////////
 
 struct Placement<'a> {
+    i: u8,
     x: Ast<'a>,     /* int */
     y: Ast<'a>,     /* int */
     rot: Ast<'a>,   /* int, 0-3 */
 }
 
 impl<'a> Placement<'a> {
-    fn new(i: u8, ctx: &'a Context, int_sort: &'a Sort) -> Placement<'a> {
-        let x = ctx.named_const(&format!("x_{}", i), int_sort);
-        let y = ctx.named_const(&format!("y_{}", i), int_sort);
-        let rot = ctx.named_const(&format!("rot_{}", i), int_sort);
+    fn new(i: u8, ctx: &'a Context) -> Placement<'a> {
+        let x = ctx.named_int_const(&format!("x_{}", i));
+        let y = ctx.named_int_const(&format!("y_{}", i));
+        let rot = ctx.named_int_const(&format!("rot_{}", i));
 
         Placement {
+            i: i,
             x: x,
             y: y,
             rot: rot,
