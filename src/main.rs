@@ -192,4 +192,39 @@ mod tests {
         let s = Stack::from_int(NUM_COPIES as u16 + 1);
         assert_eq!(s.0, (1 << (NUM_COPIES as StackInt * Z_BITS)));
     }
+
+    #[test]
+    fn stack_place() {
+        let mut s = Stack(0);
+        s.place(0, 0);
+        assert_eq!(s.0, 1);
+        s.place(0, 0);
+        assert_eq!(s.0, 1 | (1 << Z_BITS));
+
+        // Test order-independence
+        let mut a = Stack(0);
+        a.place(4, 3);
+        a.place(4, 5);
+        a.place(5, 1);
+        a.place(5, 2);
+
+        let mut b = Stack(0);
+        b.place(5, 2);
+        b.place(4, 5);
+        b.place(4, 3);
+        b.place(5, 1);
+
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn stack_get_z() {
+        let mut s = Stack(0);
+        s.place(0, 0);
+        assert_eq!(s.get_z(0), Some(0));
+        assert_eq!(s.get_z(1), None);
+
+        s.place(5, 6);
+        assert_eq!(s.get_z(5 * NUM_COPIES), Some(6));
+    }
 }
