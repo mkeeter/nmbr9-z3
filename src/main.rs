@@ -227,18 +227,60 @@ impl Stack {
             .map(|i| Placement::new(i, &ctx))
             .collect::<Vec<_>>();
 
+        // Build Z-sorted lists of tile-sets per layer
         let h = self.height();
         let mut layers = Vec::new();
         for _ in 0..h {
             layers.push(Vec::new());
         }
-
         for p in placements.iter() {
             layers[self.get_z(p.i).unwrap() as usize].push(
                 TileSets::new(p.i, p, &ctx, &int_set_sort));
         }
 
-        false
+        // Add constraints to the solver
+        let mut solver = Solver::new(&ctx);
+        let empty_set = ctx.named_const("empty_set", &int_set_sort);
+
+        // Bounds on coordinates
+        let lower = ctx.from_i64(-50 as i64);
+        let upper = ctx.from_i64( 50 as i64);
+        let zero = ctx.from_i64(0 as i64);
+        let four = ctx.from_i64(4 as i64);
+        for p in placements.iter() {
+            solver.assert(&p.x.gt(&lower));
+            solver.assert(&p.x.lt(&upper));
+
+            solver.assert(&p.y.gt(&lower));
+            solver.assert(&p.y.lt(&upper));
+
+            solver.assert(&p.rot.ge(&zero));
+            solver.assert(&p.rot.lt(&four));
+        }
+
+        for (z, layer) in layers.iter().enumerate() {
+            // Add intersection constraint for each piece
+            for (i, piece) in layer.iter().enumerate() {
+                let others: Vec<&_> = layer.iter()
+                    .enumerate()
+                    .filter(|&(j, _)| j != i)
+                    .map(|(_, p)| &p.collision)
+                    .collect();
+
+                let collision_set = empty_set.set_union(&others);
+                solver.assert(&collision_set.set_subset(&empty_set));
+            }
+        }
+
+        for (below, above) in layers.iter().zip(layers.iter().nth(1)) {
+            // Add supportedness constraint
+        }
+
+        println!("Solving...");
+        let success = solver.check();
+        println!("Success: {}", success);
+
+        success
     }
 }
 
@@ -300,7 +342,7 @@ impl<'a> TileSets<'a> {
         }
     }
 
-    fn new_set(name: &str, pts: &Vec<(i32, i32)>,
+    fn new_set(name: &str, pts: &[(i32, i32)],
                dx: &'a Ast, dy: &'a Ast, rot: &'a Ast,
                ctx: &'a Context, int_set_sort: &'a Sort) -> Ast<'a>
     {
@@ -364,7 +406,7 @@ fn main() {
     let r2 = result.set_add(&b);
     println!("Done with early test");
 
-    let s = Stack::from_int(4233);
+    let s = Stack::from_int(26);
     s.validate();
 
     let mut count = 0;
