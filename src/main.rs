@@ -214,9 +214,15 @@ impl Stack {
     fn validate(&self) -> bool {
         let cfg = Config::new();
         let ctx = Context::new(&cfg);
-        let int_set_sort = ctx.set_sort(&ctx.int_sort());
+        let int_sort = ctx.int_sort();
+        let int_set_sort = ctx.set_sort(&int_sort);
 
-        let p = Placement::new(&ctx, &int_set_sort, 0);
+        // Load-bearing unused variable: if you remove this, then
+        // Z3 crashes (reported as issue #7 in prove-rs/z3.rs)
+        let _dummy = ctx.named_const("set", &int_set_sort);
+
+        let p = Placement::new(0, &ctx, &int_sort);
+        let tiles = TileSets::new(0, &p, &ctx, &int_set_sort);
         false
     }
 }
@@ -227,36 +233,96 @@ struct Placement<'a> {
     x: Ast<'a>,     /* int */
     y: Ast<'a>,     /* int */
     rot: Ast<'a>,   /* int, 0-3 */
-
-    tiles: Ast<'a>, /* set */
-    collision: Ast<'a>,  /* set */
-    adjacent: Ast<'a>,  /* set */
 }
 
 impl<'a> Placement<'a> {
-    fn new(ctx: &'a Context, int_set: &'a Sort, i: u8) -> Placement<'a> {
-        let x = ctx.named_int_const(&format!("x_{}", i));
-        let y = ctx.named_int_const(&format!("y_{}", i));
-        let rot = ctx.named_int_const(&format!("rot_{}", i));
-
-        // Build our collision sets
-        let tiles = ctx.named_const(&format!("tiles_{}", i), &int_set);
-        let adjacent = ctx.named_const(&format!("adjacent_{}", i), &int_set);
-        let collision = ctx.named_const(&format!("collision_{}", i), &int_set);
-
-        let t = i / NUM_COPIES;
+    fn new(i: u8, ctx: &'a Context, int_sort: &'a Sort) -> Placement<'a> {
+        let x = ctx.named_const(&format!("x_{}", i), int_sort);
+        let y = ctx.named_const(&format!("y_{}", i), int_sort);
+        let rot = ctx.named_const(&format!("rot_{}", i), int_sort);
 
         Placement {
             x: x,
             y: y,
             rot: rot,
+        }
+    }
+}
 
+struct TileSets<'a> {
+    tiles: Ast<'a>,     /* set */
+    collision: Ast<'a>, /* set */
+    adjacent: Ast<'a>,  /* set */
+}
+
+impl<'a> TileSets<'a> {
+    fn new(i: u8, p: &'a Placement,
+           ctx: &'a Context, int_set_sort: &'a Sort) -> TileSets<'a> {
+        let t = (i / NUM_COPIES) as usize;
+
+        // Build our collision sets
+        let tiles = Self::new_set(
+            &format!("tiles_{}", i),
+            &PIECE_SHAPES[t],
+            &p.x, &p.y, &p.rot, ctx, int_set_sort);
+
+        let collision = Self::new_set(
+            &format!("collision_{}", i),
+            &COLLISION_TILES[t],
+            &p.x, &p.y, &p.rot, ctx, int_set_sort);
+
+        let adjacent = Self::new_set(
+            &format!("adjacent_{}", i),
+            &ADJACENT_TILES[t],
+            &p.x, &p.y, &p.rot, ctx, int_set_sort);
+
+        TileSets {
             tiles: tiles,
-            adjacent: adjacent,
             collision: collision,
+            adjacent: adjacent,
         }
     }
 
+    fn new_set(name: &str, pts: &Vec<(i32, i32)>,
+               dx: &'a Ast, dy: &'a Ast, rot: &'a Ast,
+               ctx: &'a Context, int_set_sort: &'a Sort) -> Ast<'a>
+    {
+        let mut set = ctx.named_const(name, int_set_sort);
+
+        for &(x, y) in pts.iter() {
+            // We shift both coordinates by 50, then scale y by 100
+            // to get a distinct mapping from R^2 => R
+            let px = ctx.from_i64( x as i64);
+            let nx = ctx.from_i64(-x as i64);
+            let py = ctx.from_i64( y as i64);
+            let ny = ctx.from_i64(-y as i64);
+
+            let r0 = ctx.from_i64(0);
+            let r1 = ctx.from_i64(1);
+            let r2 = ctx.from_i64(2);
+
+            let offset = ctx.from_i64(50);
+            let scale = ctx.from_i64(100);
+
+            let x_ = dx.add(&[&offset,
+                &rot._eq(&r0)
+                    .ite(&px, &rot._eq(&r1)
+                    .ite(&py, &rot._eq(&r2)
+                    .ite(&nx,
+                         &ny)))]);
+
+            let y_ = dy.add(&[&offset,
+                &rot._eq(&r0)
+                    .ite(&py, &rot._eq(&r1)
+                    .ite(&nx, &rot._eq(&r2)
+                    .ite(&ny,
+                         &px)))]);
+
+            let q = x_.add(&[&y_.mul(&[&scale])]);
+            set = set.set_add(&q);
+        }
+        return set;
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -267,6 +333,19 @@ fn main() {
         (0..(NUM_COPIES as u16 + 1).pow(PIECE_TYPES as u32))
         .map(Stack::from_int)
         .collect::<HashSet<_>>()];
+
+    println!("Early test:");
+    let cfg = Config::new();
+    let ctx = Context::new(&cfg);
+    let int_sort = ctx.int_sort();
+    let int_set_sort = ctx.set_sort(&int_sort);
+    let set = ctx.named_const("set", &int_set_sort);
+    let a = ctx.named_int_const("a");
+    let b = ctx.named_int_const("b");
+    let boop = ctx.named_const("set", &int_set_sort);
+    let result = boop.set_add(&a);
+    let r2 = result.set_add(&b);
+    println!("Done with early test");
 
     let s = Stack::from_int(4233);
     s.validate();
