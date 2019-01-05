@@ -36,7 +36,7 @@ pub static ref PIECE_SHAPES: [Vec<(u32, u32)>; PIECE_TYPES as usize] = [
 ];
 
 
-pub static ref TILE_COUNT: [u8; PIECE_TYPES as usize] = {
+pub static ref PIECE_AREA: [u8; PIECE_TYPES as usize] = {
     let mut out = [0; PIECE_TYPES as usize];
     for (i, p) in PIECE_SHAPES.iter().enumerate() {
         out[i] = p.len() as u8;
@@ -147,13 +147,34 @@ impl Stack {
     // Returns None if we run out of pieces, but performs no
     // other validity checking.
     fn onto(&self, bottom: &Stack) -> Option<Stack> {
-        let mut out = Self::new();
+        if bottom.0 == 0 {
+            return None;
+        }
 
-        let h = bottom.height();
+        // First sanity-check: return None if we run out of pieces
         for t in 0..PIECE_TYPES {
             if self.placed(t) + bottom.placed(t) > NUM_COPIES {
                 return None;
             }
+        }
+        // Second sanity-check: return None if there's an area mismatch
+        let my_base_area: u32 = (0..PIECE_COUNT)
+            .filter(|i| self.get_z(*i).unwrap_or(0xFF) == 0)
+            .map(|i| PIECE_AREA[(i / NUM_COPIES) as usize] as u32)
+            .sum();
+
+        let h = bottom.height();
+        let bottom_top_area: u32 = (0..PIECE_COUNT)
+            .filter(|i| bottom.get_z(*i).unwrap_or(0xFF) == h - 1)
+            .map(|i| PIECE_AREA[(i / NUM_COPIES) as usize] as u32)
+            .sum();
+
+        if bottom_top_area < my_base_area {
+            return None;
+        }
+
+        let mut out = Stack::new();
+        for t in 0..PIECE_TYPES {
             for i in 0..NUM_COPIES {
                 if let Some(z) = self.get_z(t * NUM_COPIES + i) {
                     out.place(t, z + h);
@@ -175,26 +196,52 @@ fn main() {
         .collect::<HashSet<_>>()];
 
     let mut count = 0;
-    for i in 0..3_u16.pow(PIECE_TYPES as u32) {
+    for (i, a) in stacks.last().unwrap().iter().enumerate() {
         if i % 100 == 0 {
-            println!("{} / {}", i, 3_u16.pow(PIECE_TYPES as u32));
+            println!("{} / {}", i, (NUM_COPIES as u16 + 1).pow(PIECE_TYPES as u32));
         }
-        for j in 0..3_u16.pow(PIECE_TYPES as u32) {
+        for b in stacks[0].iter() {
+            if let Some(c) = a.onto(b) {
+                count += 1;
+            }
+        }
+    }
+    println!("{}", count);
+
+    let mut count = 0;
+    for i in 0..(NUM_COPIES as u16 + 1).pow(PIECE_TYPES as u32) {
+        if i % 100 == 0 {
+            println!("{} / {}", i, (NUM_COPIES as u16 + 1).pow(PIECE_TYPES as u32));
+        }
+        for j in 0..(NUM_COPIES as u16 + 1).pow(PIECE_TYPES as u32) {
+            let a = Stack::from_int(i);
+            let b = Stack::from_int(j);
+            let i_ = i;
+            let j_ = j;
+
             let mut i = i;
             let mut j = j;
             let mut compatible = true;
+            let mut pieces_below = 0;
             let mut tiles_above = 0;
             let mut tiles_below = 0;
             let mut t = 0;
-            while i > 0 {
-                tiles_above += TILE_COUNT[t] as u16 * (i % 3);
-                tiles_below += TILE_COUNT[t] as u16 * (j % 3);
-                compatible &= (i % 3) + (j % 3) <= 2;
-                i /= 3;
-                j /= 3;
+            let n = NUM_COPIES as u16 + 1;
+            while i > 0 || j > 0 {
+                pieces_below += j % n;
+                tiles_above += PIECE_AREA[t] as u16 * (i % n);
+                tiles_below += PIECE_AREA[t] as u16 * (j % n);
+                compatible &= (i % n) + (j % n) < n;
+                i /= n;
+                j /= n;
                 t += 1;
             }
             compatible &= tiles_below >= tiles_above;
+
+            if a.onto(&b).is_some() && !compatible {
+                println!("Error at {} onto {}; {} onto {}", i_, j_, a.0, b.0);
+                println!("tiles: {} {}", tiles_above, tiles_below);
+            }
             if compatible {
                 count += 1;
             }
