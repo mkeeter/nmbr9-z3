@@ -44,7 +44,7 @@ dependencies = [
  "array-init 0.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "z3 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "z3 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -54,7 +54,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "z3"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -75,5 +75,5 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a374c89b9db55895453a74c1e38861d9deec0b01b405a82516e9d5de4820dea1"
 "checksum log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)" = "c84ec4b527950aa83a329754b01dbe3f58361d1c5efacd1f6d68c494d08a17c6"
 "checksum nodrop 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)" = "2f9667ddcc6cc8a43afc9b7917599d7216aa09c463919ea32c59ed6cac8bc945"
-"checksum z3 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "306880ff997d067faa88b4ef9987a16ad79f9161a5e329ee3e64e830ef515c7f"
+"checksum z3 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "64b756784ad9666b8128c486d6f3eee4d9f7627d8af54ff4502d178811648f09"
 "checksum z3-sys 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1dff903712349c6fa80acbd690641acd98f170a2e01b6f28f8fdcf850e2d4500"

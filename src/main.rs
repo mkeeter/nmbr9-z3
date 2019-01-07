@@ -217,10 +217,6 @@ impl Stack {
         let int_sort = ctx.int_sort();
         let int_set_sort = ctx.set_sort(&int_sort);
 
-        // Load-bearing unused variable: if you remove this, then
-        // Z3 crashes (reported as issue #7 in prove-rs/z3.rs)
-        let _dummy = ctx.named_const("set", &int_set_sort);
-
         // Build free variables for every active piece
         let placements = (0..PIECE_COUNT)
             .filter(|&i| self.get_z(i).is_some())
@@ -259,21 +255,53 @@ impl Stack {
         }
 
         for (z, layer) in layers.iter().enumerate() {
-            // Add intersection constraint for each piece
             for (i, piece) in layer.iter().enumerate() {
-                let others: Vec<&_> = layer.iter()
+                // Each piece must not collide with any other pieces
+                let collisions: Vec<&_> = layer.iter()
                     .enumerate()
                     .filter(|&(j, _)| j != i)
                     .map(|(_, p)| &p.collision)
                     .collect();
+                let collision_set = empty_set.set_union(&collisions);
+                let my_collisions = piece.collision.set_intersect(&[&collision_set]);
+                solver.assert(&my_collisions.set_subset(&empty_set));
 
-                let collision_set = empty_set.set_union(&others);
-                solver.assert(&collision_set.set_subset(&empty_set));
+                // Each piece must be adjacent to at least one piece
+                let adjacents: Vec<&_> = layer.iter()
+                    .enumerate()
+                    .filter(|&(j, _)| j != i)
+                    .map(|(_, p)| &p.adjacent)
+                    .collect();
+                let adjacent_set = empty_set.set_union(&adjacents);
+                let my_adjacents = piece.collision.set_intersect(&[&adjacent_set]);
+                solver.assert(&my_adjacents.set_subset(&empty_set).not());
             }
         }
 
         for (below, above) in layers.iter().zip(layers.iter().nth(1)) {
-            // Add supportedness constraint
+            // Each piece must be fully supported
+            let below_set = empty_set.set_union(
+                &below.iter()
+                    .map(|p| &p.tiles)
+                    .collect::<Vec<&_>>());
+            let above_set = empty_set.set_union(
+                &above.iter()
+                    .map(|p| &p.tiles)
+                    .collect::<Vec<&_>>());
+
+            solver.assert(
+                &below_set.set_subset(
+                    &below_set.set_intersect(&[&above_set])));
+
+            for piece in above.iter() {
+                let is_above: Vec<Ast> = below.iter()
+                    .map(|b| piece.tiles.set_intersect(&[&b.tiles])
+                                        .set_subset(&empty_set)
+                                        .not())
+                    .collect();
+                let weights = vec![1; below.len()];
+            }
+            // Each piece must be over at least two pieces
         }
 
         println!("Solving...");
@@ -393,20 +421,7 @@ fn main() {
         .map(Stack::from_int)
         .collect::<HashSet<_>>()];
 
-    println!("Early test:");
-    let cfg = Config::new();
-    let ctx = Context::new(&cfg);
-    let int_sort = ctx.int_sort();
-    let int_set_sort = ctx.set_sort(&int_sort);
-    let set = ctx.named_const("set", &int_set_sort);
-    let a = ctx.named_int_const("a");
-    let b = ctx.named_int_const("b");
-    let boop = ctx.named_const("set", &int_set_sort);
-    let result = boop.set_add(&a);
-    let r2 = result.set_add(&b);
-    println!("Done with early test");
-
-    let s = Stack::from_int(26);
+    let s = Stack::from_int(2);
     s.validate();
 
     let mut count = 0;
