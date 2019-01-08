@@ -36,7 +36,6 @@ class Piece(object):
         self.name = name
 
     def tiles(self):
-        m = self.mat()
         out = []
         for (tx, ty) in self.pattern:
             tx_ = If(self.rot == 0, tx, If(self.rot == 1, ty,
