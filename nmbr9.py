@@ -35,22 +35,14 @@ class Piece(object):
         self.score = index
         self.name = name
 
-    def mat(self):
-        r = self.rot
-        return [[1, 0], [0, 1]]
-        '''
-            [If(r == 0, 1, If(r == 1, 0, If(r == 2, -1, 0))),
-             If(r == 0, 0, If(r == 1, 1, If(r == 2, 0, -1)))],
-            [If(r == 0, 0, If(r == 1, -1, If(r == 2, 0, 1))),
-             If(r == 0, 1, If(r == 1, 0, If(r == 2, -1, 0)))]]
-             '''
-
     def tiles(self):
         m = self.mat()
         out = []
         for (tx, ty) in self.pattern:
-            tx_ = m[0][0] * tx + m[0][1] * ty
-            ty_ = m[1][0] * tx + m[1][1] * ty
+            tx_ = If(self.rot == 0, tx, If(self.rot == 1, ty,
+                  If(self.rot == 2, -tx, -ty)))
+            ty_ = If(self.rot == 0, ty, If(self.rot == 1, -tx,
+                  If(self.rot == 2, -ty, -tx)))
             out.append((self.x + tx_, self.y + ty_, self.z))
         return out
 
