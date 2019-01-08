@@ -28,21 +28,21 @@ class Piece(object):
     def __init__(self, index, name):
         self.pattern = PIECE_SHAPES[index]
 
-        self.x = Int('x_%s' % name)
-        self.y = Int('y_%s' % name)
-        self.rot = Int('rot_%s' % name)
-        self.z = Int('z_%s' % name)
+        self.x = BitVec('x_%s' % name, 7)
+        self.y = BitVec('y_%s' % name, 7)
+        self.rot = BitVec('rot_%s' % name, 2)
+        self.z = BitVec('z_%s' % name, 4)
         self.score = index
         self.name = name
 
     def tiles(self):
         out = []
         for (tx, ty) in self.pattern:
-            tx_ = If(self.rot == 0, tx, If(self.rot == 1, ty,
-                  If(self.rot == 2, -tx, -ty)))
-            ty_ = If(self.rot == 0, ty, If(self.rot == 1, -tx,
-                  If(self.rot == 2, -ty, -tx)))
-            out.append((self.x + tx_, self.y + ty_, self.z))
+            tx_ = If(self.rot == 0, BitVecVal(tx, 8), If(self.rot == 1, BitVecVal(ty, 8),
+                  If(self.rot == 2, BitVecVal(-tx, 8), BitVecVal(-ty, 8))))
+            ty_ = If(self.rot == 0, BitVecVal(ty, 8), If(self.rot == 1, BitVecVal(-tx, 8),
+                  If(self.rot == 2, BitVecVal(-ty, 8), BitVecVal(-tx, 8))))
+            out.append((ZeroExt(1, self.x) + tx_, ZeroExt(1, self.y) + ty_, self.z))
         return out
 
     def adjacent(this, other):
@@ -102,11 +102,6 @@ for (i, p) in enumerate(pieces):
         s.add(p.rot == 0)
         s.add(p.x == 0)
         s.add(p.y == 0)
-
-    # Add common constraints to every piece
-    s.add(p.rot < 4)
-    s.add(p.rot >= 0)
-    s.add(p.z >= 0)
 
     others = [o for o in pieces if o != p]
     s.add(Or(p.z == 0, And(p.over_two(others), (p.supported(others)))))
