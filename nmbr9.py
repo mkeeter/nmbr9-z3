@@ -79,7 +79,7 @@ class Piece(object):
     def over(this, other):
         ''' Returns true if any of these tiles are over the other piece
         '''
-        return And(this.z == other.z + 1,
+        return And(this.z == other.z + BitVecVal(1, 4),
                Or([And(ax == bx, ay == by)
                    for (ax, ay) in this.tiles
                    for (bx, by) in other.tiles]))
@@ -97,7 +97,7 @@ class Piece(object):
             supported = []
             for o in others:
                 supported.append(
-                    And(this.z == o.z + 1,
+                    And(this.z == o.z + BitVecVal(1, 4),
                         Or([And(ax == bx, ay == by)
                             for (bx, by) in o.tiles])))
             conditions.append(Or(supported))
