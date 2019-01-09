@@ -120,9 +120,9 @@ print("Solved in %s with score %s" % (datetime.datetime.now() - start, model.eva
 tiles = {}
 for p in pieces:
     for (x, y, z) in p.tiles():
-        tiles[(model.eval(x).as_long(),
-               model.eval(y).as_long(),
-               model.eval(z).as_long())] = p.score
+        tiles[(model.eval(x).as_signed_long(),
+               model.eval(y).as_signed_long(),
+               model.eval(z).as_signed_long())] = p.score
 
 COLOR = [
     '\033[7m',      # 0: bright white
