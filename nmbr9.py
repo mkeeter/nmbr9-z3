@@ -37,14 +37,14 @@ class Piece(object):
 
         self.tiles = []
         for (tx, ty) in self.pattern:
-            tx_ = If(self.rot == 0, BitVecVal(tx, 8),
-                  If(self.rot == 1, BitVecVal(ty, 8),
-                  If(self.rot == 2, BitVecVal(-tx, 8),
-                                    BitVecVal(-ty, 8))))
-            ty_ = If(self.rot == 0, BitVecVal(ty, 8),
-                  If(self.rot == 1, BitVecVal(-tx, 8),
-                  If(self.rot == 2, BitVecVal(-ty, 8),
-                                    BitVecVal(-tx, 8))))
+            tx_ = If(self.rot == BitVecVal(0, 2), BitVecVal(tx, 8),
+                  If(self.rot == BitVecVal(1, 2), BitVecVal(ty, 8),
+                  If(self.rot == BitVecVal(2, 2), BitVecVal(-tx, 8),
+                                                  BitVecVal(-ty, 8))))
+            ty_ = If(self.rot == BitVecVal(0, 2), BitVecVal(ty, 8),
+                  If(self.rot == BitVecVal(1, 2), BitVecVal(-tx, 8),
+                  If(self.rot == BitVecVal(2, 2), BitVecVal(-ty, 8),
+                                                  BitVecVal(-tx, 8))))
             self.tiles.append((ZeroExt(1, self.x) + tx_,
                                ZeroExt(1, self.y) + ty_))
 
@@ -53,14 +53,14 @@ class Piece(object):
             for tx, ty in self.pattern])
         self.adj = []
         for (tx, ty) in adj:
-            tx_ = If(self.rot == 0, BitVecVal(tx, 8),
-                  If(self.rot == 1, BitVecVal(ty, 8),
-                  If(self.rot == 2, BitVecVal(-tx, 8),
-                                    BitVecVal(-ty, 8))))
-            ty_ = If(self.rot == 0, BitVecVal(ty, 8),
-                  If(self.rot == 1, BitVecVal(-tx, 8),
-                  If(self.rot == 2, BitVecVal(-ty, 8),
-                                    BitVecVal(-tx, 8))))
+            tx_ = If(self.rot == BitVecVal(0, 2), BitVecVal(tx, 8),
+                  If(self.rot == BitVecVal(1, 2), BitVecVal(ty, 8),
+                  If(self.rot == BitVecVal(2, 2), BitVecVal(-tx, 8),
+                                                  BitVecVal(-ty, 8))))
+            ty_ = If(self.rot == BitVecVal(0, 2), BitVecVal(ty, 8),
+                  If(self.rot == BitVecVal(1, 2), BitVecVal(-tx, 8),
+                  If(self.rot == BitVecVal(2, 2), BitVecVal(-ty, 8),
+                                                  BitVecVal(-tx, 8))))
             self.adj.append((ZeroExt(1, self.x) + tx_,
                              ZeroExt(1, self.y) + ty_))
 
