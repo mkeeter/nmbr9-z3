@@ -35,36 +35,34 @@ class Piece(object):
         self.score = index
         self.name = name
 
-    def tiles(self):
-        out = []
+        self.tiles = []
         for (tx, ty) in self.pattern:
             tx_ = If(self.rot == 0, BitVecVal(tx, 8), If(self.rot == 1, BitVecVal(ty, 8),
                   If(self.rot == 2, BitVecVal(-tx, 8), BitVecVal(-ty, 8))))
             ty_ = If(self.rot == 0, BitVecVal(ty, 8), If(self.rot == 1, BitVecVal(-tx, 8),
                   If(self.rot == 2, BitVecVal(-ty, 8), BitVecVal(-tx, 8))))
-            out.append((ZeroExt(1, self.x) + tx_, ZeroExt(1, self.y) + ty_, self.z))
-        return out
+            self.tiles.append((ZeroExt(1, self.x) + tx_, ZeroExt(1, self.y) + ty_, self.z))
 
     def adjacent(this, other):
         return And(this.z == other.z,
                Or([Or(And(ax == bx, Or(ay == by + 1, ay + 1 == by)),
                       And(ay == by, Or(ax == bx + 1, ax + 1 == bx)))
-                   for (ax, ay, _) in this.tiles()
-                   for (bx, by, _) in other.tiles()]))
+                   for (ax, ay, _) in this.tiles
+                   for (bx, by, _) in other.tiles]))
 
     def overlapping(this, other):
         return And(this.z == other.z,
                Or([And(ax == bx, ay == by)
-                   for (ax, ay, _) in this.tiles()
-                   for (bx, by, _) in other.tiles()]))
+                   for (ax, ay, _) in this.tiles
+                   for (bx, by, _) in other.tiles]))
 
     def over(this, other):
         ''' Returns true if any of these tiles are over the other piece
         '''
         return And(this.z == other.z + 1,
                Or([And(ax == bx, ay == by)
-                   for (ax, ay, _) in this.tiles()
-                   for (bx, by, _) in other.tiles()]))
+                   for (ax, ay, _) in this.tiles
+                   for (bx, by, _) in other.tiles]))
 
     def over_two(this, others):
         ''' Returns true if this piece is over at least two other pieces
@@ -75,13 +73,13 @@ class Piece(object):
         ''' Returns true if all of this piece's tiles are supported
         '''
         conditions = []
-        for (ax, ay, _) in this.tiles():
+        for (ax, ay, _) in this.tiles:
             supported = []
             for o in others:
                 supported.append(
                     And(this.z == o.z + 1,
                         Or([And(ax == bx, ay == by)
-                            for (bx, by, _) in o.tiles()])))
+                            for (bx, by, _) in o.tiles])))
             conditions.append(Or(supported))
         return And(conditions)
 
@@ -90,7 +88,7 @@ class Piece(object):
         '''
         return And([Not(this.z == o.z) for o in others])
 
-bag = [i // 2 for i in range(7)]
+bag = [i // 2 for i in range(5)]
 pieces = [Piece(b, i) for (i, b) in enumerate(bag)]
 
 s = Optimize()
@@ -119,7 +117,7 @@ print("Solved in %s with score %s" % (datetime.datetime.now() - start, model.eva
 
 tiles = {}
 for p in pieces:
-    for (x, y, z) in p.tiles():
+    for (x, y, z) in p.tiles:
         tiles[(model.eval(x).as_signed_long(),
                model.eval(y).as_signed_long(),
                model.eval(z).as_signed_long())] = p.score
