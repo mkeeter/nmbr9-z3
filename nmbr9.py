@@ -37,32 +37,52 @@ class Piece(object):
 
         self.tiles = []
         for (tx, ty) in self.pattern:
-            tx_ = If(self.rot == 0, BitVecVal(tx, 8), If(self.rot == 1, BitVecVal(ty, 8),
-                  If(self.rot == 2, BitVecVal(-tx, 8), BitVecVal(-ty, 8))))
-            ty_ = If(self.rot == 0, BitVecVal(ty, 8), If(self.rot == 1, BitVecVal(-tx, 8),
-                  If(self.rot == 2, BitVecVal(-ty, 8), BitVecVal(-tx, 8))))
-            self.tiles.append((ZeroExt(1, self.x) + tx_, ZeroExt(1, self.y) + ty_, self.z))
+            tx_ = If(self.rot == 0, BitVecVal(tx, 8),
+                  If(self.rot == 1, BitVecVal(ty, 8),
+                  If(self.rot == 2, BitVecVal(-tx, 8),
+                                    BitVecVal(-ty, 8))))
+            ty_ = If(self.rot == 0, BitVecVal(ty, 8),
+                  If(self.rot == 1, BitVecVal(-tx, 8),
+                  If(self.rot == 2, BitVecVal(-ty, 8),
+                                    BitVecVal(-tx, 8))))
+            self.tiles.append((ZeroExt(1, self.x) + tx_,
+                               ZeroExt(1, self.y) + ty_))
+
+        adj = set([(tx + dx, ty + dy)
+            for (dx, dy) in ((0, 1), (0, -1), (1, 0), (-1, 0))
+            for tx, ty in self.pattern])
+        self.adj = []
+        for (tx, ty) in adj:
+            tx_ = If(self.rot == 0, BitVecVal(tx, 8),
+                  If(self.rot == 1, BitVecVal(ty, 8),
+                  If(self.rot == 2, BitVecVal(-tx, 8),
+                                    BitVecVal(-ty, 8))))
+            ty_ = If(self.rot == 0, BitVecVal(ty, 8),
+                  If(self.rot == 1, BitVecVal(-tx, 8),
+                  If(self.rot == 2, BitVecVal(-ty, 8),
+                                    BitVecVal(-tx, 8))))
+            self.adj.append((ZeroExt(1, self.x) + tx_,
+                             ZeroExt(1, self.y) + ty_))
 
     def adjacent(this, other):
         return And(this.z == other.z,
-               Or([Or(And(ax == bx, Or(ay == by + 1, ay + 1 == by)),
-                      And(ay == by, Or(ax == bx + 1, ax + 1 == bx)))
-                   for (ax, ay, _) in this.tiles
-                   for (bx, by, _) in other.tiles]))
+               Or([And(ax == bx, ay == by)
+                   for (ax, ay) in this.tiles
+                   for (bx, by) in other.adj]))
 
     def overlapping(this, other):
         return And(this.z == other.z,
                Or([And(ax == bx, ay == by)
-                   for (ax, ay, _) in this.tiles
-                   for (bx, by, _) in other.tiles]))
+                   for (ax, ay) in this.tiles
+                   for (bx, by) in other.tiles]))
 
     def over(this, other):
         ''' Returns true if any of these tiles are over the other piece
         '''
         return And(this.z == other.z + 1,
                Or([And(ax == bx, ay == by)
-                   for (ax, ay, _) in this.tiles
-                   for (bx, by, _) in other.tiles]))
+                   for (ax, ay) in this.tiles
+                   for (bx, by) in other.tiles]))
 
     def over_two(this, others):
         ''' Returns true if this piece is over at least two other pieces
@@ -73,13 +93,13 @@ class Piece(object):
         ''' Returns true if all of this piece's tiles are supported
         '''
         conditions = []
-        for (ax, ay, _) in this.tiles:
+        for (ax, ay) in this.tiles:
             supported = []
             for o in others:
                 supported.append(
                     And(this.z == o.z + 1,
                         Or([And(ax == bx, ay == by)
-                            for (bx, by, _) in o.tiles])))
+                            for (bx, by) in o.tiles])))
             conditions.append(Or(supported))
         return And(conditions)
 
@@ -117,10 +137,10 @@ print("Solved in %s with score %s" % (datetime.datetime.now() - start, model.eva
 
 tiles = {}
 for p in pieces:
-    for (x, y, z) in p.tiles:
+    for (x, y) in p.tiles:
         tiles[(model.eval(x).as_signed_long(),
                model.eval(y).as_signed_long(),
-               model.eval(z).as_signed_long())] = p.score
+               model.eval(p.z).as_signed_long())] = p.score
 
 COLOR = [
     '\033[7m',      # 0: bright white
