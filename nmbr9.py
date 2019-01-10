@@ -121,6 +121,11 @@ for (i, p) in enumerate(pieces):
         s.add(p.x == 0)
         s.add(p.y == 0)
 
+    if i == 3 or i == 4:
+        s.add(p.z == 1)
+    else:
+        s.add(p.z == 0)
+
     others = [o for o in pieces if o != p]
     s.add(Or(p.z == 0, And(p.over_two(others), (p.supported(others)))))
     s.add(And([Not(p.overlapping(o)) for o in others]))

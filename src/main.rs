@@ -78,6 +78,22 @@ pub static ref COLLISION_TILES: [Vec<(i32, i32)>; PIECE_TYPES as usize] = {
     out
 };
 
+pub static ref PIECE_ROT_OFFSET: [[u32; 4]; PIECE_TYPES as usize] = {
+    let mut out = [[0; 4]; PIECE_TYPES as usize];
+
+    for (i, p) in PIECE_SHAPES.iter().enumerate() {
+        for r in [[1, 0, 0, 1], [0, 1, -1, 0],
+                  [-1, 0, 0, -1], [0, -1, 1, 0]].iter()
+        {
+            for (x, y) in p.iter() {
+                let rx = x * r[0] + y * r[1];
+                let ry = x * r[2] + y * r[3];
+            }
+        }
+    }
+    out
+};
+
 }   // end of lazy_static
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -211,7 +227,22 @@ impl Stack {
         return Some(out);
     }
 
+    // Validates this placement using Z3, checking to see if there's
+    // a correct way to stack all of the pieces
     fn validate(&self) -> bool {
+        // Count the number of pieces in each layer, which we'll use
+        // to pick the number of bits in X/Y coordinates
+        let num_bits = {
+            let mut num_per_layer = [0; PIECE_COUNT as usize / 2];
+            for i in 0..PIECE_COUNT {
+                if let Some(z) = self.get_z(i) {
+                    num_per_layer[z as usize] += 1;
+                }
+            }
+            let max_pieces = num_per_layer.iter().max().unwrap_or(&0);
+            (*max_pieces as f64 * 4.0f64 + 1.0f64).log2().ceil() as u32
+        };
+
         let cfg = Config::new();
         let ctx = Context::new(&cfg);
         let int_sort = ctx.int_sort();
