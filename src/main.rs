@@ -78,22 +78,6 @@ pub static ref COLLISION_TILES: [Vec<(i32, i32)>; PIECE_TYPES as usize] = {
     out
 };
 
-pub static ref PIECE_ROT_OFFSET: [[u32; 4]; PIECE_TYPES as usize] = {
-    let mut out = [[0; 4]; PIECE_TYPES as usize];
-
-    for (i, p) in PIECE_SHAPES.iter().enumerate() {
-        for r in [[1, 0, 0, 1], [0, 1, -1, 0],
-                  [-1, 0, 0, -1], [0, -1, 1, 0]].iter()
-        {
-            for (x, y) in p.iter() {
-                let rx = x * r[0] + y * r[1];
-                let ry = x * r[2] + y * r[3];
-            }
-        }
-    }
-    out
-};
-
 }   // end of lazy_static
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -245,13 +229,11 @@ impl Stack {
 
         let cfg = Config::new();
         let ctx = Context::new(&cfg);
-        let int_sort = ctx.int_sort();
-        let int_set_sort = ctx.set_sort(&int_sort);
 
         // Build free variables for every active piece
         let placements = (0..PIECE_COUNT)
             .filter(|&i| self.get_z(i).is_some())
-            .map(|i| Placement::new(i, &ctx))
+            .map(|i| Placement::new(i, num_bits, &ctx))
             .collect::<Vec<_>>();
 
         // Build Z-sorted lists of tile-sets per layer
@@ -353,10 +335,10 @@ struct Placement<'a> {
 }
 
 impl<'a> Placement<'a> {
-    fn new(i: u8, ctx: &'a Context) -> Placement<'a> {
-        let x = ctx.named_int_const(&format!("x_{}", i));
-        let y = ctx.named_int_const(&format!("y_{}", i));
-        let rot = ctx.named_int_const(&format!("rot_{}", i));
+    fn new(i: u8, bits: u32, ctx: &'a Context) -> Placement<'a> {
+        let x = ctx.named_bitvector_const(&format!("x_{}", i), bits);
+        let y = ctx.named_bitvector_const(&format!("y_{}", i), bits);
+        let rot = ctx.named_bitvector_const(&format!("rot_{}", i), 2);
 
         Placement {
             i: i,
@@ -367,16 +349,18 @@ impl<'a> Placement<'a> {
     }
 }
 
+/*
+ *  Each Ast is a double-wide bitvector containing x and y packed together
+ */
 struct TileSets<'a> {
-    tiles: Ast<'a>,     /* set */
-    collision: Ast<'a>, /* set */
-    adjacent: Ast<'a>,  /* set */
+    tiles: Vec<Ast<'a>>,
+    collision: Vec<Ast<'a>>,
+    adjacent: Vec<Ast<'a>>,
 }
 
 impl<'a> TileSets<'a> {
-    fn new(i: u8, p: &'a Placement,
-           ctx: &'a Context, int_set_sort: &'a Sort) -> TileSets<'a> {
-        let t = (i / NUM_COPIES) as usize;
+    fn new(p: &'a Placement, bits: u32, ctx: &'a Context) -> TileSets<'a> {
+        let t = (p.i / NUM_COPIES) as usize;
 
         // Build our collision sets
         let tiles = Self::new_set(
@@ -401,11 +385,11 @@ impl<'a> TileSets<'a> {
         }
     }
 
-    fn new_set(name: &str, pts: &[(i32, i32)],
+    fn new_vec(name: &str, pts: &[(i32, i32)],
                dx: &'a Ast, dy: &'a Ast, rot: &'a Ast,
-               ctx: &'a Context, int_set_sort: &'a Sort) -> Ast<'a>
+               ctx: &'a Context) -> Vec<Ast<'a>>
     {
-        let mut set = ctx.named_const(name, int_set_sort);
+        let mut out = vec![];
 
         for &(x, y) in pts.iter() {
             // We shift both coordinates by 50, then scale y by 100

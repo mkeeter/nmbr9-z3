@@ -108,7 +108,7 @@ class Piece(object):
         '''
         return And([Not(this.z == o.z) for o in others])
 
-bag = [i // 2 for i in range(5)]
+bag = [i // 2 for i in range(6)]
 pieces = [Piece(b, i) for (i, b) in enumerate(bag)]
 
 s = Optimize()
@@ -118,13 +118,6 @@ for (i, p) in enumerate(pieces):
     # Add extra constraints to the first piece, to narrow the search space
     if i == 0:
         s.add(p.rot == 0)
-        s.add(p.x == 0)
-        s.add(p.y == 0)
-
-    if i == 3 or i == 4:
-        s.add(p.z == 1)
-    else:
-        s.add(p.z == 0)
 
     others = [o for o in pieces if o != p]
     s.add(Or(p.z == 0, And(p.over_two(others), (p.supported(others)))))
