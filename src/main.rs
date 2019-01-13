@@ -7,6 +7,9 @@ use z3::*;
 use std::collections::{HashSet, HashMap};
 use std::fmt;
 
+const N: usize = 4;
+const R: usize = 1;
+
 fn rotated(ts: &[(i64, i64)], rot: usize) -> Vec<(i64, i64)> {
     let m = match rot {
         0 => &[ 1,  0,  0,  1],
@@ -28,8 +31,8 @@ fn from_ast_vec<T>(vs: &[Ast], model: &Model, f: &Fn(Ast) -> Option<T>) -> Vec<T
         ).collect()
 }
 
-fn build_ast_vec<'a>(f: &Fn(&str) -> Ast<'a>, name: &str, n: usize) -> Vec<Ast<'a>> {
-    iproduct!(0..n, 0..4)
+fn build_ast_vec<'a>(f: &Fn(&str) -> Ast<'a>, name: &str) -> Vec<Ast<'a>> {
+    iproduct!(0..N, 0..R)
         .map(|(i, r)| f(&format!("{}_{}_{}", name, i, r)))
         .collect()
 }
@@ -92,8 +95,8 @@ fn main() {
     // We need to check every piece + rotation against every other
     // piece + rotation to build our adjacency and overlapping tables.
     let (is_overlapping, is_adjacent) = iproduct!(
-            PIECE_SHAPES.iter().enumerate(), 0..4,
-            PIECE_SHAPES.iter().enumerate(), 0..4)
+            PIECE_SHAPES.iter().enumerate(), 0..R,
+            PIECE_SHAPES.iter().enumerate(), 0..R)
         .par_bridge()
         .map(|((i, pi), ri, (j, pj), rj)| {
             let pi = rotated(pi, ri);
@@ -135,31 +138,29 @@ fn main() {
                     a.1.into_iter().chain(b.1).collect())
         );
 
-    const N: usize = 3;
-
     let cfg = Config::new();
     let ctx = Context::new(&cfg);
 
     // Here are all of our state variables!
-    let xs = build_ast_vec(&|s| ctx.named_int_const(s), "x", N);
-    let ys = build_ast_vec(&|s| ctx.named_int_const(s), "y", N);
-    let zs = build_ast_vec(&|s| ctx.named_int_const(s), "z", N);
-    let active = build_ast_vec(&|s| ctx.named_bool_const(s), "active", N);
+    let xs = build_ast_vec(&|s| ctx.named_int_const(s), "x");
+    let ys = build_ast_vec(&|s| ctx.named_int_const(s), "y");
+    let zs = build_ast_vec(&|s| ctx.named_int_const(s), "z");
+    let active = build_ast_vec(&|s| ctx.named_bool_const(s), "active");
 
     let s = Optimize::new(&ctx);
 
     // First, add a constraint that only one of each four rotations is active
     for i in 0..N {
-        let active = active[i*4..(i+1)*4].iter().collect::<Vec<_>>();
+        let active = active[i*R..(i+1)*R].iter().collect::<Vec<_>>();
         let cond = ctx.from_bool(false)
             .pb_eq(&active, vec![1; active.len() + 1], 1);
         s.assert(&cond);
     }
 
     // A piece is lonely if it is the only one at its Z level
-    let lonely : Vec<_> = (0..(4*N)).into_iter().map(|i| {
-        let same_z: Vec<_> = (0..4*N).into_iter()
-            .filter(|j| j / 4 != i / 4)
+    let lonely : Vec<_> = (0..(R*N)).into_iter().map(|i| {
+        let same_z: Vec<_> = (0..R*N).into_iter()
+            .filter(|j| j / R != i / R)
             .map(|j| zs[i]._eq(&zs[j]))
             .collect();
         ctx.from_bool(false)
@@ -167,13 +168,13 @@ fn main() {
             .not()})
         .collect();
 
-    for i in 0..(4*N) {
-        let (ni, ri) = (i / 8, i % 4);
+    for i in 0..(R*N) {
+        let (ni, ri) = (i / R / 2, i % R);
 
-        let data = (0..4*N).into_iter()
-            .filter(|j| j / 4 != i / 4)
+        let data = (0..R*N).into_iter()
+            .filter(|j| j / R != i / R)
             .map(|j| {
-                let (nj, rj) = (j / 8, j % 4);
+                let (nj, rj) = (j / R / 2, j % R);
                 let key = (ni, ri, nj, rj);
 
                 let dx = xs[i].sub(&[&xs[j]]);
@@ -189,7 +190,7 @@ fn main() {
 
                 let is_above = active[i].and(&[
                     &active[j],
-                    &zs[i]._eq(&zs[j].sub(&[&ctx.from_i64(1)])),
+                    &zs[i]._eq(&zs[j].add(&[&ctx.from_i64(1)])),
                     &is_over]);
 
                 let is_adjacent = active[i].and(&[
@@ -215,8 +216,10 @@ fn main() {
 
         s.assert(&any_overlapping.not());
         s.assert(&any_adjacent);
-        //s.assert(&above_two.or(&[&zs[i]._eq(&ctx.from_i64(0))]));
+        s.assert(&zs[i]._eq(&ctx.from_i64(0)));
+        s.assert(&above_two.or(&[&zs[i]._eq(&ctx.from_i64(0))]));
     }
+    println!("{}", s.to_string());
 
     if s.check() {
         let model = s.get_model();
@@ -227,10 +230,11 @@ fn main() {
         let active = from_ast_vec(&active, &model, &|i| i.as_bool());
 
         let mut tiles = HashMap::new();
-        for i in 0..4*N {
+        for i in 0..R*N {
             if active[i] {
-                for (px, py) in rotated(&PIECE_SHAPES[i / 8], i % 4).iter() {
-                    tiles.insert((xs[i] + px, ys[i] + py, zs[i]), i / 8);
+                let j = i / R / 2;
+                for (px, py) in rotated(&PIECE_SHAPES[j], i % R).iter() {
+                    tiles.insert((xs[i] + px, ys[i] + py, zs[i]), j);
                 }
             }
         }
