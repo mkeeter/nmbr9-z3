@@ -50,6 +50,19 @@ fn any_xy_match<'a>(ctx: &'a Context, x: Ast<'a>, y: Ast<'a>,
             .collect::<Vec<_>>())
 }
 
+const COLORS: [&str; 10] = [
+    "\x1b[7m",      // 0: bright white
+    "\x1b[47m",     // 1: slightly greyer
+    "\x1b[43m",     // 2: orange
+    "\x1b[103m",    // 3: bright orange
+    "\x1b[42m",     // 4: green
+    "\x1b[44m",     // 5: blue
+    "\x1b[104m",    // 6: blue-grey
+    "\x1b[45m",     // 7: purple
+    "\x1b[105m",    // 8: pink
+    "\x1b[101m",    // 9: red
+];
+
 fn main() {
     #[allow(non_snake_case)]
     let PIECE_SHAPES: [Vec<(i64, i64)>; 10] = [
@@ -122,7 +135,7 @@ fn main() {
                     a.1.into_iter().chain(b.1).collect())
         );
 
-    const N: usize = 2;
+    const N: usize = 3;
 
     let cfg = Config::new();
     let ctx = Context::new(&cfg);
@@ -163,8 +176,6 @@ fn main() {
                 let (nj, rj) = (j / 8, j % 4);
                 let key = (ni, ri, nj, rj);
 
-                println!("Got key {:?}", key);
-
                 let dx = xs[i].sub(&[&xs[j]]);
                 let dy = ys[i].sub(&[&ys[j]]);
 
@@ -195,8 +206,7 @@ fn main() {
             .from_bool(false)
             .or(&data.iter().map(|p| &p.0).collect::<Vec<_>>());
 
-        let any_adjacent = ctx
-            .from_bool(false)
+        let any_adjacent = lonely[i]
             .or(&data.iter().map(|p| &p.1).collect::<Vec<_>>());
 
         let above_two = ctx.from_bool(false)
@@ -204,10 +214,9 @@ fn main() {
                    vec![1; data.len() + 1], 2);
 
         s.assert(&any_overlapping.not());
-        s.assert(&any_adjacent.or(&[&lonely[i]]));
+        s.assert(&any_adjacent);
         //s.assert(&above_two.or(&[&zs[i]._eq(&ctx.from_i64(0))]));
     }
-    println!("{}", s.to_string());
 
     if s.check() {
         let model = s.get_model();
@@ -217,15 +226,38 @@ fn main() {
         let zs = from_ast_vec(&zs, &model, &|i| i.as_i64());
         let active = from_ast_vec(&active, &model, &|i| i.as_bool());
 
-        for a in active.iter() {
-            println!("{:?}", a);
+        let mut tiles = HashMap::new();
+        for i in 0..4*N {
+            if active[i] {
+                for (px, py) in rotated(&PIECE_SHAPES[i / 8], i % 4).iter() {
+                    tiles.insert((xs[i] + px, ys[i] + py, zs[i]), i / 8);
+                }
+            }
         }
-        for a in xs.iter() {
-            println!("{:?}", a);
+        let xmin = tiles.keys().map(|(x, _, _)| *x).min().unwrap_or(0);
+        let xmax = tiles.keys().map(|(x, _, _)| *x).max().unwrap_or(0);
+        let ymin = tiles.keys().map(|(_, y, _)| *y).min().unwrap_or(0);
+        let ymax = tiles.keys().map(|(_, y, _)| *y).max().unwrap_or(0);
+        let zmin = tiles.keys().map(|(_, _, z)| *z).min().unwrap_or(0);
+        let zmax = tiles.keys().map(|(_, _, z)| *z).max().unwrap_or(0);
+
+        for z in zmin..=zmax {
+            for y in ymin..=ymax {
+                for x in xmin..=xmax {
+                    let s = if x == xmin || x == xmax ||
+                               y == ymin || y == ymax
+                        { ". " } else { "  " };
+
+                    if let Some(i) = tiles.get(&(x, y, z)) {
+                        print!("{}{}\x1b[0m", COLORS[*i], s);
+                    } else {
+                        print!("{}", s);
+                    }
+                }
+                print!("\n");
+            }
         }
     } else {
         println!("unsat");
     }
-    println!("{:?}", is_overlapping[&(0, 0, 0, 0)]);
-    println!("Hello, world {} ", is_overlapping.len());
 }
