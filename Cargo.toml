@@ -5,7 +5,6 @@ authors = ["Matt Keeter <matt.j.keeter@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-lazy_static = "1.0"
-array-init = "0.0.4"
 itertools = "0.8"
 z3 = "0.3.2"
+rayon = "1.0"

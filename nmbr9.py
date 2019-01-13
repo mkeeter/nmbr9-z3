@@ -24,6 +24,17 @@ PIECE_SHAPES = (
     ((0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (0, 3), (1, 3), (2, 3)),
 )
 
+for a in range(len(PIECE_SHAPES)):
+    for ra in range(4):
+        for b in range(len(PIECE_SHAPES)):
+            for rb in range(4):
+                ta = rotated(ra, PIECE_SHAPES[a])
+                tb = rotated(rb, PIECE_SHAPES[b])
+                    for dx in range(-10, 10):
+                        for dy in range(-10, 10):
+                            sa = set([(x + dy, y + dy) for (x, y) in ta])
+                            sa.intersection(set(tb)
+
 def rotated(i, ts):
     M = {0: [1, 0, 0, 1],
          1: [0, 1, -1, 0],
