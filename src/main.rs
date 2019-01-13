@@ -7,7 +7,7 @@ use z3::*;
 use std::collections::{HashSet, HashMap};
 use std::fmt;
 
-fn rotated(ts: &[(i32, i32)], rot: usize) -> Vec<(i32, i32)> {
+fn rotated(ts: &[(i64, i64)], rot: usize) -> Vec<(i64, i64)> {
     let m = match rot {
         0 => &[ 1,  0,  0,  1],
         1 => &[ 0,  1, -1,  0],
@@ -34,10 +34,27 @@ fn build_ast_vec<'a>(f: &Fn(&str) -> Ast<'a>, name: &str, n: usize) -> Vec<Ast<'
         .collect()
 }
 
+/*
+ *  Builds an Ast that is true if (x,y) appears in the given table
+ */
+fn any_xy_match<'a>(ctx: &'a Context, x: Ast<'a>, y: Ast<'a>,
+                    table: &[(i64, i64)]) -> Ast<'a> {
+    ctx.from_bool(false)
+        .or(&table
+            .iter()
+            .map(|(tx, ty)| (x._eq(&ctx.from_i64(*tx)),
+                             y._eq(&ctx.from_i64(*ty))))
+            .map(|(ex, ey)| ex.and(&[&ey]))
+            .collect::<Vec<_>>()
+            .iter()
+            .collect::<Vec<_>>())
+}
+
 fn main() {
     #[allow(non_snake_case)]
-    let PIECE_SHAPES: [Vec<(i32, i32)>; 10] = [
+    let PIECE_SHAPES: [Vec<(i64, i64)>; 10] = [
         // 0
+        //vec![(0, 0)],
         vec![(0, 0), (1, 0), (2, 0), (0, 1), (2, 1), (0, 2), (2, 2), (0, 3), (1, 3), (2, 3)],
         // 1
         vec![(1, 0), (1, 1), (1, 2), (0, 3), (1, 3)],
@@ -76,7 +93,7 @@ fn main() {
                     .collect();
                 let sj: HashSet<_> = pj.iter().cloned().collect();
                 si.intersection(&sj).count() > 0
-            }).collect::<Vec<(i32, i32)>>();
+            }).collect::<Vec<(i64, i64)>>();
 
             // Find coordinates where the two pieces are adjacent
             let adj = iproduct!(-10..=10, -10..=10).filter(|(dx, dy)| {
@@ -88,7 +105,7 @@ fn main() {
                     .collect();
                 let sj: HashSet<_> = pj.iter().cloned().collect();
                 si.intersection(&sj).count() > 0
-            }).collect::<Vec<(i32, i32)>>();
+            }).collect::<Vec<(i64, i64)>>();
 
             let key = (i, ri, j, rj);
             let mut o = HashMap::new();
@@ -105,7 +122,7 @@ fn main() {
                     a.1.into_iter().chain(b.1).collect())
         );
 
-    const N: usize = 1;
+    const N: usize = 2;
 
     let cfg = Config::new();
     let ctx = Context::new(&cfg);
@@ -121,27 +138,76 @@ fn main() {
     // First, add a constraint that only one of each four rotations is active
     for i in 0..N {
         let active = active[i*4..(i+1)*4].iter().collect::<Vec<_>>();
-        let coeffs = vec![0, 1, 1, 1, 1];
-        let f = ctx.from_bool(false);
-        let cond = f.pb_eq(&active, coeffs, 1);
+        let cond = ctx.from_bool(false)
+            .pb_eq(&active, vec![1; active.len() + 1], 1);
         s.assert(&cond);
     }
+
+    // A piece is lonely if it is the only one at its Z level
+    let lonely : Vec<_> = (0..(4*N)).into_iter().map(|i| {
+        let same_z: Vec<_> = (0..4*N).into_iter()
+            .filter(|j| j / 4 != i / 4)
+            .map(|j| zs[i]._eq(&zs[j]))
+            .collect();
+        ctx.from_bool(false)
+            .or(&same_z.iter().collect::<Vec<_>>())
+            .not()})
+        .collect();
 
     for i in 0..(4*N) {
         let (ni, ri) = (i / 8, i % 4);
 
-        for j in 0..(4*N) {
-            // Skip the same piece
-            if i / 4 == j / 4 {
-                continue;
-            }
+        let data = (0..4*N).into_iter()
+            .filter(|j| j / 4 != i / 4)
+            .map(|j| {
+                let (nj, rj) = (j / 8, j % 4);
+                let key = (ni, ri, nj, rj);
 
-            let (nj, rj) = (j / 8, j % 4);
-            let key = (i, ri, j, rj);
-            let dx = xs[i].sub(&[&xs[j]]);
-            let dy = ys[i].sub(&[&ys[j]]);
-        }
+                println!("Got key {:?}", key);
+
+                let dx = xs[i].sub(&[&xs[j]]);
+                let dy = ys[i].sub(&[&ys[j]]);
+
+                let is_over = any_xy_match(&ctx, dx.clone(), dy.clone(),
+                                           &is_overlapping[&key]);
+
+                let is_overlapping = active[i].and(&[
+                    &active[j],
+                    &zs[i]._eq(&zs[j]),
+                    &is_over]);
+
+                let is_above = active[i].and(&[
+                    &active[j],
+                    &zs[i]._eq(&zs[j].sub(&[&ctx.from_i64(1)])),
+                    &is_over]);
+
+                let is_adjacent = active[i].and(&[
+                    &active[j],
+                    &zs[i]._eq(&zs[j]),
+                    &any_xy_match(&ctx, dx.clone(), dy.clone(),
+                                  &is_adjacent[&key])]);
+
+                (is_overlapping, is_adjacent, is_above)
+            })
+            .collect::<Vec<_>>();
+
+        let any_overlapping = ctx
+            .from_bool(false)
+            .or(&data.iter().map(|p| &p.0).collect::<Vec<_>>());
+
+        let any_adjacent = ctx
+            .from_bool(false)
+            .or(&data.iter().map(|p| &p.1).collect::<Vec<_>>());
+
+        let above_two = ctx.from_bool(false)
+            .pb_ge(&data.iter().map(|p| &p.2).collect::<Vec<_>>(),
+                   vec![1; data.len() + 1], 2);
+
+        s.assert(&any_overlapping.not());
+        s.assert(&any_adjacent.or(&[&lonely[i]]));
+        //s.assert(&above_two.or(&[&zs[i]._eq(&ctx.from_i64(0))]));
     }
+    println!("{}", s.to_string());
 
     if s.check() {
         let model = s.get_model();
@@ -157,6 +223,9 @@ fn main() {
         for a in xs.iter() {
             println!("{:?}", a);
         }
+    } else {
+        println!("unsat");
     }
+    println!("{:?}", is_overlapping[&(0, 0, 0, 0)]);
     println!("Hello, world {} ", is_overlapping.len());
 }
