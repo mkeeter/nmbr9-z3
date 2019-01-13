@@ -8,7 +8,7 @@ use std::collections::{HashSet, HashMap};
 use std::fmt;
 
 const N: usize = 4;
-const R: usize = 1;
+const R: usize = 4;
 
 fn rotated(ts: &[(i64, i64)], rot: usize) -> Vec<(i64, i64)> {
     let m = match rot {
@@ -31,26 +31,19 @@ fn from_ast_vec<T>(vs: &[Ast], model: &Model, f: &Fn(Ast) -> Option<T>) -> Vec<T
         ).collect()
 }
 
-fn build_ast_vec<'a>(f: &Fn(&str) -> Ast<'a>, name: &str) -> Vec<Ast<'a>> {
-    iproduct!(0..N, 0..R)
-        .map(|(i, r)| f(&format!("{}_{}_{}", name, i, r)))
-        .collect()
-}
-
 /*
  *  Builds an Ast that is true if (x,y) appears in the given table
  */
 fn any_xy_match<'a>(ctx: &'a Context, x: Ast<'a>, y: Ast<'a>,
                     table: &[(i64, i64)]) -> Ast<'a> {
-    ctx.from_bool(false)
-        .or(&table
-            .iter()
-            .map(|(tx, ty)| (x._eq(&ctx.from_i64(*tx)),
-                             y._eq(&ctx.from_i64(*ty))))
-            .map(|(ex, ey)| ex.and(&[&ey]))
-            .collect::<Vec<_>>()
-            .iter()
-            .collect::<Vec<_>>())
+    let o = table
+        .iter()
+        .map(|(tx, ty)| (x._eq(&ctx.from_i64(*tx)),
+                         y._eq(&ctx.from_i64(*ty))))
+        .map(|(ex, ey)| ex.and(&[&ey]))
+        .collect::<Vec<_>>();
+
+    o[0].or(&o[1..].iter().collect::<Vec<_>>())
 }
 
 const COLORS: [&str; 10] = [
@@ -70,7 +63,6 @@ fn main() {
     #[allow(non_snake_case)]
     let PIECE_SHAPES: [Vec<(i64, i64)>; 10] = [
         // 0
-        //vec![(0, 0)],
         vec![(0, 0), (1, 0), (2, 0), (0, 1), (2, 1), (0, 2), (2, 2), (0, 3), (1, 3), (2, 3)],
         // 1
         vec![(1, 0), (1, 1), (1, 2), (0, 3), (1, 3)],
@@ -142,29 +134,37 @@ fn main() {
     let ctx = Context::new(&cfg);
 
     // Here are all of our state variables!
-    let xs = build_ast_vec(&|s| ctx.named_int_const(s), "x");
-    let ys = build_ast_vec(&|s| ctx.named_int_const(s), "y");
-    let zs = build_ast_vec(&|s| ctx.named_int_const(s), "z");
-    let active = build_ast_vec(&|s| ctx.named_bool_const(s), "active");
+    let xs: Vec<_> = (0..N)
+        .map(|i| ctx.named_int_const(&format!("x_{}", i)))
+        .collect();
+    let ys: Vec<_> = (0..N)
+        .map(|i| ctx.named_int_const(&format!("y_{}", i)))
+        .collect();
+    let zs: Vec<_> = (0..N)
+        .map(|i| ctx.named_int_const(&format!("z_{}", i)))
+        .collect();
+    let active: Vec<_> = iproduct!(0..N, 0..R)
+        .map(|(i, r)| ctx.named_bool_const(&format!("a_{}_{}", i, r)))
+        .collect();
 
     let s = Optimize::new(&ctx);
 
     // First, add a constraint that only one of each four rotations is active
     for i in 0..N {
         let active = active[i*R..(i+1)*R].iter().collect::<Vec<_>>();
-        let cond = ctx.from_bool(false)
-            .pb_eq(&active, vec![1; active.len() + 1], 1);
+        let cond = active[0]
+            .pb_eq(&active[1..], vec![1; active.len() + 1], 1);
         s.assert(&cond);
     }
 
     // A piece is lonely if it is the only one at its Z level
-    let lonely : Vec<_> = (0..(R*N)).into_iter().map(|i| {
-        let same_z: Vec<_> = (0..R*N).into_iter()
-            .filter(|j| j / R != i / R)
+    let lonely : Vec<_> = (0..N).into_iter().map(|i| {
+        let same_z: Vec<_> = (0..N).into_iter()
+            .filter(|j| *j != i)
             .map(|j| zs[i]._eq(&zs[j]))
             .collect();
-        ctx.from_bool(false)
-            .or(&same_z.iter().collect::<Vec<_>>())
+        same_z[0]
+            .or(&same_z[1..].iter().collect::<Vec<_>>())
             .not()})
         .collect();
 
@@ -177,25 +177,25 @@ fn main() {
                 let (nj, rj) = (j / R / 2, j % R);
                 let key = (ni, ri, nj, rj);
 
-                let dx = xs[i].sub(&[&xs[j]]);
-                let dy = ys[i].sub(&[&ys[j]]);
+                let dx = xs[i / R].sub(&[&xs[j / R]]);
+                let dy = ys[i / R].sub(&[&ys[j / R]]);
 
                 let is_over = any_xy_match(&ctx, dx.clone(), dy.clone(),
                                            &is_overlapping[&key]);
 
                 let is_overlapping = active[i].and(&[
                     &active[j],
-                    &zs[i]._eq(&zs[j]),
+                    &zs[i / R]._eq(&zs[j / R]),
                     &is_over]);
 
                 let is_above = active[i].and(&[
                     &active[j],
-                    &zs[i]._eq(&zs[j].add(&[&ctx.from_i64(1)])),
+                    &zs[i / R]._eq(&zs[j / R].add(&[&ctx.from_i64(1)])),
                     &is_over]);
 
                 let is_adjacent = active[i].and(&[
                     &active[j],
-                    &zs[i]._eq(&zs[j]),
+                    &zs[i / R]._eq(&zs[j / R]),
                     &any_xy_match(&ctx, dx.clone(), dy.clone(),
                                   &is_adjacent[&key])]);
 
@@ -203,21 +203,22 @@ fn main() {
             })
             .collect::<Vec<_>>();
 
-        let any_overlapping = ctx
-            .from_bool(false)
-            .or(&data.iter().map(|p| &p.0).collect::<Vec<_>>());
+        let any_overlapping = data[0].0
+            .or(&data[1..].iter().map(|p| &p.0).collect::<Vec<_>>());
 
-        let any_adjacent = lonely[i]
+        let any_adjacent = lonely[i / R]
             .or(&data.iter().map(|p| &p.1).collect::<Vec<_>>());
 
-        let above_two = ctx.from_bool(false)
-            .pb_ge(&data.iter().map(|p| &p.2).collect::<Vec<_>>(),
+        let above_two = data[0].2
+            .pb_ge(&data[1..].iter().map(|p| &p.2).collect::<Vec<_>>(),
                    vec![1; data.len() + 1], 2);
 
-        s.assert(&any_overlapping.not());
-        s.assert(&any_adjacent);
-        s.assert(&zs[i]._eq(&ctx.from_i64(0)));
-        s.assert(&above_two.or(&[&zs[i]._eq(&ctx.from_i64(0))]));
+        let cond = any_overlapping.not().and(&[
+            &any_adjacent,
+            &above_two.or(
+                &[&zs[i / R]._eq(&ctx.from_i64(0))])]);
+
+        s.assert(&active[i].not().or(&[&cond]));
     }
     println!("{}", s.to_string());
 
@@ -234,7 +235,7 @@ fn main() {
             if active[i] {
                 let j = i / R / 2;
                 for (px, py) in rotated(&PIECE_SHAPES[j], i % R).iter() {
-                    tiles.insert((xs[i] + px, ys[i] + py, zs[i]), j);
+                    tiles.insert((xs[i / R] + px, ys[i / R] + py, zs[i / R]), j);
                 }
             }
         }
