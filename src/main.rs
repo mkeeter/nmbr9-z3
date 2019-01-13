@@ -18,6 +18,16 @@ fn rotated(ts: &[(i32, i32)], rot: usize) -> Vec<(i32, i32)> {
     ts.iter().map(|(x, y)| (m[0] * x + m[1] * y, m[2] * x + m[3] * y)).collect()
 }
 
+fn to_vec<T>(vs: &[Ast], model: &Model, f: &Fn(Ast) -> Option<T>) -> Vec<T>
+    where T: Default
+{
+    vs.iter().map(
+        |x| model.eval(x)
+            .and_then(|i| f(i))
+            .unwrap_or(T::default())
+        ).collect()
+}
+
 fn main() {
     #[allow(non_snake_case)]
     let PIECE_SHAPES: [Vec<(i32, i32)>; 10] = [
@@ -91,6 +101,58 @@ fn main() {
 
     const N: usize = 1;
 
+    let cfg = Config::new();
+    let ctx = Context::new(&cfg);
+    let int_sort = ctx.int_sort();
 
+    // Here are all of our state variables!
+    let xs: Vec<_> = iproduct!(0..N, 0..4).map(
+        |(i, r)| ctx.named_int_const(&format!("x_{}_{}", i, r))).collect();
+    let ys: Vec<_> = iproduct!(0..N, 0..4).map(
+        |(i, r)| ctx.named_int_const(&format!("y_{}_{}", i, r))).collect();
+    let zs: Vec<_> = iproduct!(0..N, 0..4).map(
+        |(i, r)| ctx.named_int_const(&format!("z_{}_{}", i, r))).collect();
+    let active: Vec<_> = iproduct!(0..N, 0..4).map(
+        |(i, r)| ctx.named_bool_const(&format!("a_{}_{}", i, r))).collect();
+
+    let mut s = Optimize::new(&ctx);
+
+    // First, add a constraint that only one of each four rotations is active
+    for i in 0..N {
+        let active = active[i*4..(i+1)*4].iter().collect::<Vec<_>>();
+        let coeffs = vec![0, 1, 1, 1, 1];
+        let f = ctx.from_bool(false);
+        let cond = f.pb_eq(&active, coeffs, 1);
+        s.assert(&cond);
+    }
+
+    for i in 0..(4*N) {
+        let (ni, ri) = (i / 8, i % 4);
+
+        for j in 0..(4*N) {
+            // Skip the same piece
+            if i / 4 == j / 4 {
+                continue;
+            }
+
+            let (nj, rj) = (j / 8, j % 4);
+            let key = (i, ri, j, rj);
+            let dx = xs[i].sub(&[&xs[j]]);
+            let dy = ys[i].sub(&[&ys[j]]);
+        }
+    }
+
+    if (s.check()) {
+        let model = s.get_model();
+
+        let xs = to_vec(&xs, &model, &|i| i.as_i64());
+        let ys = to_vec(&ys, &model, &|i| i.as_i64());
+        let zs = to_vec(&zs, &model, &|i| i.as_i64());
+        let active = to_vec(&active, &model, &|i| i.as_bool());
+
+        for a in active.iter() {
+            println!("{:?}", a);
+        }
+    }
     println!("Hello, world {} ", is_overlapping.len());
 }
