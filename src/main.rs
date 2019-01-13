@@ -18,7 +18,7 @@ fn rotated(ts: &[(i32, i32)], rot: usize) -> Vec<(i32, i32)> {
     ts.iter().map(|(x, y)| (m[0] * x + m[1] * y, m[2] * x + m[3] * y)).collect()
 }
 
-fn to_vec<T>(vs: &[Ast], model: &Model, f: &Fn(Ast) -> Option<T>) -> Vec<T>
+fn from_ast_vec<T>(vs: &[Ast], model: &Model, f: &Fn(Ast) -> Option<T>) -> Vec<T>
     where T: Default
 {
     vs.iter().map(
@@ -26,6 +26,12 @@ fn to_vec<T>(vs: &[Ast], model: &Model, f: &Fn(Ast) -> Option<T>) -> Vec<T>
             .and_then(|i| f(i))
             .unwrap_or(T::default())
         ).collect()
+}
+
+fn build_ast_vec<'a>(f: &Fn(&str) -> Ast<'a>, name: &str, n: usize) -> Vec<Ast<'a>> {
+    iproduct!(0..n, 0..4)
+        .map(|(i, r)| f(&format!("{}_{}_{}", name, i, r)))
+        .collect()
 }
 
 fn main() {
@@ -103,19 +109,14 @@ fn main() {
 
     let cfg = Config::new();
     let ctx = Context::new(&cfg);
-    let int_sort = ctx.int_sort();
 
     // Here are all of our state variables!
-    let xs: Vec<_> = iproduct!(0..N, 0..4).map(
-        |(i, r)| ctx.named_int_const(&format!("x_{}_{}", i, r))).collect();
-    let ys: Vec<_> = iproduct!(0..N, 0..4).map(
-        |(i, r)| ctx.named_int_const(&format!("y_{}_{}", i, r))).collect();
-    let zs: Vec<_> = iproduct!(0..N, 0..4).map(
-        |(i, r)| ctx.named_int_const(&format!("z_{}_{}", i, r))).collect();
-    let active: Vec<_> = iproduct!(0..N, 0..4).map(
-        |(i, r)| ctx.named_bool_const(&format!("a_{}_{}", i, r))).collect();
+    let xs = build_ast_vec(&|s| ctx.named_int_const(s), "x", N);
+    let ys = build_ast_vec(&|s| ctx.named_int_const(s), "y", N);
+    let zs = build_ast_vec(&|s| ctx.named_int_const(s), "z", N);
+    let active = build_ast_vec(&|s| ctx.named_bool_const(s), "active", N);
 
-    let mut s = Optimize::new(&ctx);
+    let s = Optimize::new(&ctx);
 
     // First, add a constraint that only one of each four rotations is active
     for i in 0..N {
@@ -142,15 +143,18 @@ fn main() {
         }
     }
 
-    if (s.check()) {
+    if s.check() {
         let model = s.get_model();
 
-        let xs = to_vec(&xs, &model, &|i| i.as_i64());
-        let ys = to_vec(&ys, &model, &|i| i.as_i64());
-        let zs = to_vec(&zs, &model, &|i| i.as_i64());
-        let active = to_vec(&active, &model, &|i| i.as_bool());
+        let xs = from_ast_vec(&xs, &model, &|i| i.as_i64());
+        let ys = from_ast_vec(&ys, &model, &|i| i.as_i64());
+        let zs = from_ast_vec(&zs, &model, &|i| i.as_i64());
+        let active = from_ast_vec(&active, &model, &|i| i.as_bool());
 
         for a in active.iter() {
+            println!("{:?}", a);
+        }
+        for a in xs.iter() {
             println!("{:?}", a);
         }
     }
