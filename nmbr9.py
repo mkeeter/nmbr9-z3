@@ -24,121 +24,116 @@ PIECE_SHAPES = (
     ((0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (0, 3), (1, 3), (2, 3)),
 )
 
+def rotated(i, ts):
+    M = {0: [1, 0, 0, 1],
+         1: [0, 1, -1, 0],
+         2: [-1, 0, 0, -1],
+         3: [0, -1, 1, 0]}[i]
+    return [(M[0] * x + M[1] * y, M[2] * x + M[3] * y)
+            for (x, y) in ts]
+
 class Piece(object):
-    def __init__(self, index, name):
-        self.pattern = PIECE_SHAPES[index]
+    def __init__(self, index):
 
-        self.x = BitVec('x_%s' % name, 7)
-        self.y = BitVec('y_%s' % name, 7)
-        self.rot = BitVec('rot_%s' % name, 2)
-        self.z = BitVec('z_%s' % name, 4)
-        self.score = index
-        self.name = name
+        self.x = Int('x_%s' % index)
+        self.y = Int('y_%s' % index)
+        self.rot = Int('rot_%s' % index)
+        self.z = Int('z_%s' % index)
 
-        self.tiles = []
-        for (tx, ty) in self.pattern:
-            tx_ = If(self.rot == BitVecVal(0, 2), BitVecVal(tx, 8),
-                  If(self.rot == BitVecVal(1, 2), BitVecVal(ty, 8),
-                  If(self.rot == BitVecVal(2, 2), BitVecVal(-tx, 8),
-                                                  BitVecVal(-ty, 8))))
-            ty_ = If(self.rot == BitVecVal(0, 2), BitVecVal(ty, 8),
-                  If(self.rot == BitVecVal(1, 2), BitVecVal(-tx, 8),
-                  If(self.rot == BitVecVal(2, 2), BitVecVal(-ty, 8),
-                                                  BitVecVal(-tx, 8))))
-            self.tiles.append((ZeroExt(1, self.x) + tx_,
-                               ZeroExt(1, self.y) + ty_))
+        self.score = index // 2
+        self.name = index
 
-        adj = set([(tx + dx, ty + dy)
-            for (dx, dy) in ((0, 1), (0, -1), (1, 0), (-1, 0))
-            for tx, ty in self.pattern])
-        self.adj = []
-        for (tx, ty) in adj:
-            tx_ = If(self.rot == BitVecVal(0, 2), BitVecVal(tx, 8),
-                  If(self.rot == BitVecVal(1, 2), BitVecVal(ty, 8),
-                  If(self.rot == BitVecVal(2, 2), BitVecVal(-tx, 8),
-                                                  BitVecVal(-ty, 8))))
-            ty_ = If(self.rot == BitVecVal(0, 2), BitVecVal(ty, 8),
-                  If(self.rot == BitVecVal(1, 2), BitVecVal(-tx, 8),
-                  If(self.rot == BitVecVal(2, 2), BitVecVal(-ty, 8),
-                                                  BitVecVal(-tx, 8))))
-            self.adj.append((ZeroExt(1, self.x) + tx_,
-                             ZeroExt(1, self.y) + ty_))
+        self.tiles = PIECE_SHAPES[index // 2]
+        self.adjacent = list(set([(tx + dx, ty + dy)
+                for (dx, dy) in ((0, 1), (0, -1), (1, 0), (-1, 0))
+                for tx, ty in self.tiles])
+            .difference(self.tiles))
 
-    def adjacent(this, other):
-        return And(this.z == other.z,
-               Or([And(ax == bx, ay == by)
-                   for (ax, ay) in this.tiles
-                   for (bx, by) in other.adj]))
+    def any(self, other, self_attr, other_attr=None):
+        if other_attr is None:
+            other_attr = self_attr
+        cond = False
+        for i in range(2):
+            for j in range(2):
+                cond = If(
+                    And(self.rot == i, other.rot == j),
+                    Or([And(ax + self.x == bx + other.x,
+                            ay + self.y == by + other.y)
+                       for (ax, ay) in rotated(i, getattr(self, self_attr))
+                       for (bx, by) in rotated(j, getattr(other, other_attr))]),
+                    cond)
+        return cond
 
-    def overlapping(this, other):
-        return And(this.z == other.z,
-               Or([And(ax == bx, ay == by)
-                   for (ax, ay) in this.tiles
-                   for (bx, by) in other.tiles]))
+    def num_over(self, other):
+        cond = 0
+        for i in range(2):
+            for j in range(2):
+                cond = If(
+                    And(self.rot == i, other.rot == j),
+                    Sum([If(And(ax + self.x == bx + other.x,
+                                ay + self.y == by + other.y), 1, 0)
+                       for (ax, ay) in rotated(i, self.tiles)
+                       for (bx, by) in rotated(j, other.tiles)]),
+                    cond)
+        return If(self.z == other.z + 1, cond, 0)
 
-    def over(this, other):
-        ''' Returns true if any of these tiles are over the other piece
-        '''
-        return And(this.z == other.z + BitVecVal(1, 4),
-               Or([And(ax == bx, ay == by)
-                   for (ax, ay) in this.tiles
-                   for (bx, by) in other.tiles]))
+    def is_overlapping(self, other):
+        return And(self.z == other.z, self.any(other, 'tiles'))
 
-    def over_two(this, others):
-        ''' Returns true if this piece is over at least two other pieces
-        '''
-        return PbGe([(this.over(o), 1) for o in others], 2)
+    def is_over(self, other):
+        return And(self.z == other.z + 1, self.any(other, 'tiles'))
 
-    def supported(this, others):
-        ''' Returns true if all of this piece's tiles are supported
-        '''
-        conditions = []
-        for (ax, ay) in this.tiles:
-            supported = []
-            for o in others:
-                supported.append(
-                    And(this.z == o.z + BitVecVal(1, 4),
-                        Or([And(ax == bx, ay == by)
-                            for (bx, by) in o.tiles])))
-            conditions.append(Or(supported))
-        return And(conditions)
+    def is_adjacent(self, other):
+        option_a = len(self.tiles) + len(other.adjacent)
+        option_b = len(self.adjacent) + len(other.tiles)
+        return And(self.z == other.z,
+            self.any(other, 'tiles', 'adjacent') if option_a < option_b else
+            self.any(other, 'adjacent', 'tiles'))
 
-    def lonely(this, others):
-        ''' Returns true if this is the only piece with the given Z value
-        '''
-        return And([Not(this.z == o.z) for o in others])
+pieces = [Piece(i) for i in range(4)]
 
-bag = [i // 2 for i in range(6)]
-pieces = [Piece(b, i) for (i, b) in enumerate(bag)]
-
-s = Optimize()
+solver = Optimize()
 start = datetime.datetime.now()
-for (i, p) in enumerate(pieces):
-    print("%i / %i" % (i + 1, len(pieces)))
-    # Add extra constraints to the first piece, to narrow the search space
-    if i == 0:
-        s.add(p.rot == 0)
 
-    others = [o for o in pieces if o != p]
-    s.add(Or(p.z == 0, And(p.over_two(others), (p.supported(others)))))
-    s.add(And([Not(p.overlapping(o)) for o in others]))
-    s.add(Or(p.lonely(others), Or([p.adjacent(o) for o in others])))
+# Add a general no-overlapping constraint
+solver.add(Not(Or([
+    pieces[i].is_overlapping(pieces[j])
+    for i in range(len(pieces))
+    for j in range(0, i)])))
+
+for p in pieces:
+    solver.add(p.rot < 4)
+    others = [q for q in pieces if q != p]
+
+    # Each piece must either be lonely on its layer, or have a neighbor
+    solver.add(Or(
+        And([p.z != q.z for q in others]),
+        Or([p.is_adjacent(q) for q in others])))
+
+    over = [p.num_over(q) for q in others]
+    # Each piece must be over more than one other piece
+    # and completely supported
+    solver.add(Or(p.z == 0, And(PbGe([(o > 0, 1) for o in over], 2),
+                                Sum(over) == len(p.tiles))))
 
 score = Sum([p.z * p.score for p in pieces])
-s.maximize(score)
+print("About to maximize model")
+solver.maximize(score)
 print("Built model in %s" % (datetime.datetime.now() - start))
 
 start = datetime.datetime.now()
-s.check()
-model = s.model()
-print("Solved in %s with score %s" % (datetime.datetime.now() - start, model.eval(score)))
+if solver.check() == CheckSatResult(1):
+    model = solver.model()
+    print("Solved in %s with score %s" % (datetime.datetime.now() - start, model.eval(score)))
+else:
+    raise RuntimeError("Model is unsat")
 
 tiles = {}
 for p in pieces:
-    for (x, y) in p.tiles:
-        tiles[(model.eval(x).as_signed_long(),
-               model.eval(y).as_signed_long(),
-               model.eval(p.z).as_signed_long())] = p.score
+    for (x, y) in rotated(model.eval(p.rot).as_long(), p.tiles):
+        tiles[(x + model.eval(p.x).as_long(),
+               y + model.eval(p.y).as_long(),
+               model.eval(p.z).as_long())] = p.name // 2
 
 COLOR = [
     '\033[7m',      # 0: bright white
