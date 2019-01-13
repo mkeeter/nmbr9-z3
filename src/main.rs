@@ -7,7 +7,7 @@ use z3::*;
 use std::collections::{HashSet, HashMap};
 use std::fmt;
 
-const N: usize = 4;
+const N: usize = 6;
 const R: usize = 4;
 
 fn rotated(ts: &[(i64, i64)], rot: usize) -> Vec<(i64, i64)> {
@@ -220,6 +220,16 @@ fn main() {
 
         s.assert(&active[i].not().or(&[&cond]));
     }
+
+    let mut score = ctx.from_i64(0);
+    score = score.add(&(0..N)
+        .into_iter()
+        .map(|i| ctx.from_i64((i / 2) as i64).mul(&[&zs[i]]))
+        .collect::<Vec<_>>()
+        .iter()
+        .collect::<Vec<_>>());
+    s.maximize(&score);
+
     println!("{}", s.to_string());
 
     if s.check() {
@@ -248,7 +258,7 @@ fn main() {
 
         for z in zmin..=zmax {
             for y in ymin..=ymax {
-                for x in xmin..=xmax {
+                for x in (xmin..=xmax).rev() {
                     let s = if x == xmin || x == xmax ||
                                y == ymin || y == ymax
                         { ". " } else { "  " };
@@ -265,4 +275,5 @@ fn main() {
     } else {
         println!("unsat");
     }
+
 }
