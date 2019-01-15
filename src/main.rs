@@ -5,9 +5,8 @@ extern crate z3;
 use z3::*;
 
 use std::collections::{HashSet, HashMap};
-use std::fmt;
 
-const N: usize = 6;
+const N: usize = 5;
 const R: usize = 4;
 
 fn rotated(ts: &[(i64, i64)], rot: usize) -> Vec<(i64, i64)> {
@@ -44,6 +43,22 @@ fn any_xy_match<'a>(ctx: &'a Context, x: Ast<'a>, y: Ast<'a>,
         .collect::<Vec<_>>();
 
     o[0].or(&o[1..].iter().collect::<Vec<_>>())
+}
+
+fn num_xy_match<'a>(ctx: &'a Context, x: Ast<'a>, y: Ast<'a>,
+                    table: &HashMap<usize, Vec<(i64, i64)>>) -> Ast<'a> {
+
+    let mut e = ctx.from_i64(0);
+    for (score, pts) in table.iter() {
+        let o = pts.iter()
+            .map(|(tx, ty)| (x._eq(&ctx.from_i64(*tx)),
+                             y._eq(&ctx.from_i64(*ty))))
+            .map(|(ex, ey)| ex.and(&[&ey]))
+            .collect::<Vec<_>>();
+        let cond = o[0].or(&o[1..].iter().collect::<Vec<_>>());
+        e = cond.ite(&ctx.from_i64(*score as i64), &e);
+    }
+    e
 }
 
 const COLORS: [&str; 10] = [
@@ -86,7 +101,7 @@ fn main() {
 
     // We need to check every piece + rotation against every other
     // piece + rotation to build our adjacency and overlapping tables.
-    let (is_overlapping, is_adjacent) = iproduct!(
+    let (num_overlapping, is_adjacent) = iproduct!(
             PIECE_SHAPES.iter().enumerate(), 0..R,
             PIECE_SHAPES.iter().enumerate(), 0..R)
         .par_bridge()
@@ -95,13 +110,18 @@ fn main() {
             let pj = rotated(pj, rj);
 
             // Find coordinates where the two pieces are overlapping
-            let over = iproduct!(-10..=10, -10..=10).filter(|(dx, dy)| {
-                let si: HashSet<_> = pi.iter()
-                    .map(|(x, y)| (x + dx, y + dy))
-                    .collect();
-                let sj: HashSet<_> = pj.iter().cloned().collect();
-                si.intersection(&sj).count() > 0
-            }).collect::<Vec<(i64, i64)>>();
+            let mut over = HashMap::new();
+            iproduct!(-10..=10, -10..=10)
+                .map(|(dx, dy)| {
+                    let si: HashSet<_> = pi.iter()
+                        .map(|(x, y)| (x + dx, y + dy))
+                        .collect();
+                    let sj: HashSet<_> = pj.iter().cloned().collect();
+                    (dx, dy, si.intersection(&sj).count())})
+                .filter(|(_, _, i)| *i > 0)
+                .map(|(dx, dy, i)|
+                    over.entry(i).or_insert(Vec::new()).push((dx, dy)))
+                .for_each(drop);
 
             // Find coordinates where the two pieces are adjacent
             let adj = iproduct!(-10..=10, -10..=10).filter(|(dx, dy)| {
@@ -129,6 +149,10 @@ fn main() {
             |a, b| (a.0.into_iter().chain(b.0).collect(),
                     a.1.into_iter().chain(b.1).collect())
         );
+
+    let is_overlapping = num_overlapping.iter()
+        .map(|(k, m)| (k, m.values().flatten().cloned().collect::<Vec<_>>()))
+        .collect::<HashMap<_, Vec<_>>>();
 
     let cfg = Config::new();
     let ctx = Context::new(&cfg);
@@ -180,28 +204,39 @@ fn main() {
                 let dx = xs[i / R].sub(&[&xs[j / R]]);
                 let dy = ys[i / R].sub(&[&ys[j / R]]);
 
+                let zi = &zs[i / R];
+                let zj = &zs[j / R];
+                let same_z = zi._eq(zj);
+                let above_z = zi._eq(&zj.add(&[&ctx.from_i64(1)]));
+
                 let is_over = any_xy_match(&ctx, dx.clone(), dy.clone(),
                                            &is_overlapping[&key]);
 
-                let is_overlapping = active[i].and(&[
-                    &active[j],
-                    &zs[i / R]._eq(&zs[j / R]),
+                let active = active[i].and(&[&active[j]]);
+                let num_over = active
+                    .and(&[&above_z])
+                    .ite(&num_xy_match(&ctx, dx.clone(), dy.clone(),
+                                       &num_overlapping[&key]),
+                         &ctx.from_i64(0));
+
+                let is_overlapping = active.and(&[
+                    &same_z,
                     &is_over]);
 
-                let is_above = active[i].and(&[
-                    &active[j],
-                    &zs[i / R]._eq(&zs[j / R].add(&[&ctx.from_i64(1)])),
+                let is_above = active.and(&[
+                    &above_z,
                     &is_over]);
 
-                let is_adjacent = active[i].and(&[
-                    &active[j],
-                    &zs[i / R]._eq(&zs[j / R]),
+                let is_adjacent = active.and(&[
+                    &same_z,
                     &any_xy_match(&ctx, dx.clone(), dy.clone(),
                                   &is_adjacent[&key])]);
 
-                (is_overlapping, is_adjacent, is_above)
+                (is_overlapping, is_adjacent, is_above, num_over)
             })
             .collect::<Vec<_>>();
+
+        let floored = zs[i / R]._eq(&ctx.from_i64(0));
 
         let any_overlapping = data[0].0
             .or(&data[1..].iter().map(|p| &p.0).collect::<Vec<_>>());
@@ -213,10 +248,15 @@ fn main() {
             .pb_ge(&data[1..].iter().map(|p| &p.2).collect::<Vec<_>>(),
                    vec![1; data.len() + 1], 2);
 
+        let fully_over = data[0].3
+            .add(&data[1..].iter().map(|p| &p.3).collect::<Vec<_>>())
+            ._eq(&ctx.from_i64(PIECE_SHAPES[ni].len() as i64));
+
         let cond = any_overlapping.not().and(&[
             &any_adjacent,
-            &above_two.or(
-                &[&zs[i / R]._eq(&ctx.from_i64(0))])]);
+            &fully_over.or(&[&floored]),
+            &above_two.or(&[&floored]),
+        ]);
 
         s.assert(&active[i].not().or(&[&cond]));
     }
@@ -258,7 +298,7 @@ fn main() {
 
         for z in zmin..=zmax {
             for y in ymin..=ymax {
-                for x in (xmin..=xmax).rev() {
+                for x in xmin..=xmax {
                     let s = if x == xmin || x == xmax ||
                                y == ymin || y == ymax
                         { ". " } else { "  " };
@@ -271,6 +311,7 @@ fn main() {
                 }
                 print!("\n");
             }
+            print!("\n");
         }
     } else {
         println!("unsat");
