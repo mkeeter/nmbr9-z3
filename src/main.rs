@@ -46,10 +46,13 @@ fn any_xy_match<'a>(ctx: &'a Context, x: Ast<'a>, y: Ast<'a>,
 }
 
 fn num_xy_match<'a>(ctx: &'a Context, x: Ast<'a>, y: Ast<'a>,
-                    table: &HashMap<usize, Vec<(i64, i64)>>) -> Ast<'a> {
+                    size: usize, table: &HashMap<usize, Vec<(i64, i64)>>) -> Ast<'a> {
 
     let mut e = ctx.from_i64(0);
     for (score, pts) in table.iter() {
+        if *score == size {
+            continue;
+        }
         let o = pts.iter()
             .map(|(tx, ty)| (x._eq(&ctx.from_i64(*tx)),
                              y._eq(&ctx.from_i64(*ty))))
@@ -216,6 +219,7 @@ fn main() {
                 let num_over = active
                     .and(&[&above_z])
                     .ite(&num_xy_match(&ctx, dx.clone(), dy.clone(),
+                                       PIECE_SHAPES[ni].len(),
                                        &num_overlapping[&key]),
                          &ctx.from_i64(0));
 
@@ -223,16 +227,12 @@ fn main() {
                     &same_z,
                     &is_over]);
 
-                let is_above = active.and(&[
-                    &above_z,
-                    &is_over]);
-
                 let is_adjacent = active.and(&[
                     &same_z,
                     &any_xy_match(&ctx, dx.clone(), dy.clone(),
                                   &is_adjacent[&key])]);
 
-                (is_overlapping, is_adjacent, is_above, num_over)
+                (is_overlapping, is_adjacent, num_over)
             })
             .collect::<Vec<_>>();
 
@@ -244,18 +244,13 @@ fn main() {
         let any_adjacent = lonely[i / R]
             .or(&data.iter().map(|p| &p.1).collect::<Vec<_>>());
 
-        let above_two = data[0].2
-            .pb_ge(&data[1..].iter().map(|p| &p.2).collect::<Vec<_>>(),
-                   vec![1; data.len() + 1], 2);
-
-        let fully_over = data[0].3
-            .add(&data[1..].iter().map(|p| &p.3).collect::<Vec<_>>())
+        let fully_over = data[0].2
+            .add(&data[1..].iter().map(|p| &p.2).collect::<Vec<_>>())
             ._eq(&ctx.from_i64(PIECE_SHAPES[ni].len() as i64));
 
         let cond = any_overlapping.not().and(&[
             &any_adjacent,
             &fully_over.or(&[&floored]),
-            &above_two.or(&[&floored]),
         ]);
 
         s.assert(&active[i].not().or(&[&cond]));
