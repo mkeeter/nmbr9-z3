@@ -127,16 +127,18 @@ fn main() {
                 .for_each(drop);
 
             // Find coordinates where the two pieces are adjacent
-            let adj = iproduct!(-10..=10, -10..=10).filter(|(dx, dy)| {
-                let si: HashSet<_> = pi.iter()
-                    .flat_map(|(x, y)|
-                        [(0, 1), (0, -1), (1, 0), (-1, 0)].iter()
-                        .map(move |(dx, dy)| (x + dx, y + dy)))
-                    .map(|(x, y)| (x + dx, y + dy))
-                    .collect();
-                let sj: HashSet<_> = pj.iter().cloned().collect();
-                si.intersection(&sj).count() > 0
-            }).collect::<Vec<(i64, i64)>>();
+            let adj = iproduct!(-10..=10, -10..=10)
+                .filter(|(dx, dy)| {
+                    let si: HashSet<_> = pi.iter()
+                        .flat_map(|(x, y)|
+                            [(0, 1), (0, -1), (1, 0), (-1, 0)].iter()
+                            .map(move |(dx, dy)| (x + dx, y + dy)))
+                        .map(|(x, y)| (x + dx, y + dy))
+                        .collect();
+                    let sj: HashSet<_> = pj.iter().cloned().collect();
+                    si.intersection(&sj).count() > 0 })
+                .filter(|pt| !over.values().any(|o| o.contains(pt)))
+                .collect::<Vec<(i64, i64)>>();
 
             let key = (i, ri, j, rj);
             let mut o = HashMap::new();
