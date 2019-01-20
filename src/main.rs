@@ -16,6 +16,12 @@ const R: usize = 4;
 struct PieceIndex(usize);
 
 struct Tables {
+    /*  Every piece's shape */
+    shapes: HashMap<PieceIndex, Vec<(i64, i64)>>,
+
+    /*  A simple look-up table that stores area per piece */
+    area: HashMap<PieceIndex, usize>,
+
     /*  overlapping[(a,b)] returns a list of lists of all possible offsets
      *  (as xy pairs) that produce a particular number of overlapping tiles */
     overlap: HashMap<(PieceIndex, PieceIndex),
@@ -51,12 +57,13 @@ impl Tables {
             vec![(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (0, 3), (1, 3), (2, 3)],
         ];
 
+        let mut area = HashMap::new();
         let mut piece_shapes = HashMap::new();
         for i in 0..shapes.len() {
             for r in 0..4 {
-                piece_shapes.insert(
-                    PieceIndex(i * 4 + r),
-                    rotated(&shapes[i], r));
+                let index = PieceIndex(i * 4 + r);
+                area.insert(index, shapes[i].len());
+                piece_shapes.insert(index, Self::rotated(&shapes[i], r));
             }
         }
 
@@ -127,8 +134,10 @@ impl Tables {
         }
 
         Tables {
-            overlap: overlapping,
-            adjacent: adjacent
+            shapes:     piece_shapes,
+            area:       area,
+            overlap:    overlapping,
+            adjacent:   adjacent
         }
     }
 
@@ -148,6 +157,44 @@ impl Tables {
         out.into_iter()
             .map(|(x, y)| (x - xmin, y - ymin))
             .collect()
+    }
+}
+
+#[derive(Clone)]
+struct Stackup(Vec<Vec<PieceIndex>>);
+
+impl Stackup {
+    fn validate(&self, t: &Tables) -> bool {
+        // Only the top layer is allowed to have less than two pieces
+        if self.0.iter().skip(1).any(|layer| layer.len() < 2) {
+            return false;
+        }
+
+        // Area must be monotonically decreasing
+        let areas = self.0.iter()
+            .map(|layer|
+                 layer.iter()
+                     .map(|p| t.area[p])
+                     .sum())
+            .collect::<Vec<usize>>();
+        if areas.iter().zip(areas.iter().skip(1)).any(|(a, b)| a > b) {
+            return false;
+        }
+
+        // Otherwise, it's time to break out the big guns!
+        let cfg = Config::new();
+        let ctx = Context::new(&cfg);
+
+        let pts: Vec<_> = self.0.iter().enumerate()
+            .map(|(i, t)| t.iter()
+                 .enumerate()
+                 .map(|(j, _)|
+                      (ctx.named_int_const(&format!("x_{}_{}", i, j)),
+                       ctx.named_int_const(&format!("y_{}_{}", i, j))))
+                 .collect::<Vec<_>>())
+            .collect();
+
+        return true;
     }
 }
 
