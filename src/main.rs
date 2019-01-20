@@ -6,8 +6,150 @@ use z3::*;
 
 use std::collections::{HashSet, HashMap};
 
-const N: usize = 5;
+const N: usize = 4;
 const R: usize = 4;
+
+/*  A PieceIndex represents a particular piece + rotation
+ *  Valid PieceIndex values are in the range 0-39
+ *      (10 shapes * 4 rotations)  */
+#[derive(Eq, PartialEq, Hash, Copy, Clone)]
+struct PieceIndex(usize);
+
+struct Tables {
+    /*  overlapping[(a,b)] returns a list of lists of all possible offsets
+     *  (as xy pairs) that produce a particular number of overlapping tiles */
+    overlap: HashMap<(PieceIndex, PieceIndex),
+                     Vec<(usize, Vec<(i64, i64)>)>>,
+
+    /*  adjacent[(a,b)] returns a list of all possible offsets (as xy pairs)
+     *  that result in the two pieces being adjacent (and not overlapping) */
+    adjacent: HashMap<(PieceIndex, PieceIndex), Vec<(i64, i64)>>,
+}
+
+impl Tables {
+    fn new() -> Tables {
+        let shapes: [Vec<(i64, i64)>; 10] = [
+            // 0
+            vec![(0, 0), (1, 0), (2, 0), (0, 1), (2, 1), (0, 2), (2, 2), (0, 3), (1, 3), (2, 3)],
+            // 1
+            vec![(1, 0), (1, 1), (1, 2), (0, 3), (1, 3)],
+            // 2
+            vec![(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (1, 2), (2, 2), (1, 3), (2, 3)],
+            // 3
+            vec![(0, 0), (1, 0), (2, 0), (1, 1), (2, 1), (2, 2), (0, 3), (1, 3), (2, 3)],
+            // 4
+            vec![(1, 0), (2, 0), (0, 1), (1, 1), (2, 1), (1, 2), (1, 3), (2, 3)],
+            // 5
+            vec![(0, 0), (1, 0), (2, 0), (2, 1), (0, 2), (1, 2), (2, 2), (0, 3), (1, 3), (2, 3)],
+            // 6
+            vec![(0, 0), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1), (0, 2), (0, 3), (1, 3)],
+            // 7
+            vec![(0, 0), (0, 1), (1, 1), (1, 2), (0, 3), (1, 3), (2, 3)],
+            // 8
+            vec![(0, 0), (1, 0), (0, 1), (1, 1), (1, 2), (2, 2), (1, 3), (2, 3)],
+            // 9
+            vec![(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2), (2, 2), (0, 3), (1, 3), (2, 3)],
+        ];
+
+        let mut piece_shapes = HashMap::new();
+        for i in 0..shapes.len() {
+            for r in 0..4 {
+                piece_shapes.insert(
+                    PieceIndex(i * 4 + r),
+                    rotated(&shapes[i], r));
+            }
+        }
+
+        // Build a map of where pieces overlap, and by how much
+        let mut overlapping_map = HashMap::new();
+        for (i, pi) in piece_shapes.iter() {
+            let si: HashSet<_> = pi.iter()
+                .cloned()
+                .collect();
+            for (j, pj) in piece_shapes.iter() {
+                let target = overlapping_map.entry((*i, *j))
+                    .or_insert(HashMap::new());
+                for dx in -4..=4 {
+                    for dy in -4..=4 {
+                        let num = pj.iter()
+                            .map(|(x, y)| (x + dx, y + dy))
+                            .collect::<HashSet<_>>()
+                            .intersection(&si)
+                            .count();
+                        target.entry(num)
+                            .or_insert(Vec::new())
+                            .push((dx, dy));
+                    }
+                }
+            }
+        }
+
+        // Convert to the final form of overlap map
+        let mut overlapping = HashMap::new();
+        for (k, v) in overlapping_map {
+            let scores: Vec<(usize, Vec<(i64, i64)>)> = v.iter()
+                .map(|(k, v)| (*k, v.iter().cloned().collect()))
+                .collect();
+            overlapping.insert(k, scores);
+        }
+
+        // Build a map of where pieces are adjacent
+        let mut adjacent = HashMap::new();
+        for (i, pi) in piece_shapes.iter() {
+            let si: HashSet<_> = pi.iter()
+                .flat_map(|(x, y)| [(0, 1), (0, -1), (1, 0), (-1, 0)]
+                    .iter()
+                    .map(move |(dx, dy)| (x + dx, y + dy)))
+                .collect();
+
+            for (j, pj) in piece_shapes.iter() {
+                let target = adjacent.entry((*i, *j))
+                    .or_insert(Vec::new());
+
+                let overlap: HashSet<_> = overlapping[&(*i, *j)].iter()
+                    .flat_map(|(_, v)| v.iter())
+                    .cloned()
+                    .collect();
+
+                for dx in -5..=5 {
+                    for dy in -5..=5 {
+                        let any_adjacent = pj.iter()
+                            .map(|(x, y)| (x + dx, y + dy))
+                            .collect::<HashSet<_>>()
+                            .intersection(&si)
+                            .count() > 0;
+                        if any_adjacent && !overlap.contains(&(dx, dy)) {
+                            target.push((dx, dy))
+                        }
+                    }
+                }
+            }
+        }
+
+        Tables {
+            overlap: overlapping,
+            adjacent: adjacent
+        }
+    }
+
+    fn rotated(ts: &[(i64, i64)], rot: usize) -> Vec<(i64, i64)> {
+        let m = match rot {
+            0 => &[ 1,  0,  0,  1],
+            1 => &[ 0,  1, -1,  0],
+            2 => &[-1,  0,  0, -1],
+            3 => &[ 0, -1,  1,  0],
+            _ => unimplemented!("oh no")
+        };
+        let out: Vec<_> = ts.iter()
+            .map(|(x, y)| (m[0] * x + m[1] * y, m[2] * x + m[3] * y))
+            .collect();
+        let xmin = out.iter().map(|(x, _)| *x).min().unwrap_or(0);
+        let ymin = out.iter().map(|(_, y)| *y).min().unwrap_or(0);
+        out.into_iter()
+            .map(|(x, y)| (x - xmin, y - ymin))
+            .collect()
+    }
+}
 
 fn rotated(ts: &[(i64, i64)], rot: usize) -> Vec<(i64, i64)> {
     let m = match rot {
@@ -75,6 +217,10 @@ const COLORS: [&str; 10] = [
 ];
 
 fn main() {
+    println!("Building tables!");
+    let t = Tables::new();
+    println!("Done");
+
     #[allow(non_snake_case)]
     let PIECE_SHAPES: [Vec<(i64, i64)>; 10] = [
         // 0
@@ -264,7 +410,7 @@ fn main() {
         .collect::<Vec<_>>());
     s.maximize(&score);
 
-    println!("{}", s.to_string());
+    //println!("{}", s.to_string());
 
     if s.check() {
         let model = s.get_model();
