@@ -83,9 +83,11 @@ impl Tables {
                             .collect::<HashSet<_>>()
                             .intersection(&si)
                             .count();
-                        target.entry(num)
-                            .or_insert(Vec::new())
-                            .push((dx, dy));
+                        if num > 0 {
+                            target.entry(num)
+                                .or_insert(Vec::new())
+                                .push((dx, dy));
+                        }
                     }
                 }
             }
@@ -170,6 +172,17 @@ impl Stackup {
             return false;
         }
 
+        {   // We're only allowed to have a maximum of 2 of each piece
+            // (counting every rotation)
+            let mut count = HashMap::new();
+            for p in self.0.iter().flat_map(|i| i.iter()) {
+                *count.entry(p.0 / 4).or_insert(0) += 1;
+            }
+            if *count.values().max().unwrap_or(&0) > 2 {
+                return false;
+            }
+        }
+
         // Area must be monotonically decreasing
         let areas = self.0.iter()
             .map(|layer|
@@ -188,13 +201,55 @@ impl Stackup {
         let pts: Vec<_> = self.0.iter().enumerate()
             .map(|(i, t)| t.iter()
                  .enumerate()
-                 .map(|(j, _)|
-                      (ctx.named_int_const(&format!("x_{}_{}", i, j)),
+                 .map(|(j, pt)|
+                      (*pt,
+                       ctx.named_int_const(&format!("x_{}_{}", i, j)),
                        ctx.named_int_const(&format!("y_{}_{}", i, j))))
                  .collect::<Vec<_>>())
             .collect();
 
+        let solver = Solver::new(&ctx);
+        for layer in pts.iter() {
+            Self::add_layer_constraints(&ctx, &solver, layer, t);
+        }
+
         return true;
+    }
+
+    fn add_layer_constraints(ctx: &Context, solver: &Solver,
+                             pts: &Vec<(PieceIndex, Ast, Ast)>, t: &Tables) {
+        // Single-piece layers have no constraints
+        if pts.len() < 2 {
+            return;
+        }
+
+        let mut adjacent = Vec::new();
+        for (i, (ap, ax, ay)) in pts.iter().enumerate() {
+            for (j, (bp, bx, by)) in pts.iter().enumerate().skip(i + 1) {
+                let dx = ax.sub(&[&bx]);
+                let dy = ay.sub(&[&by]);
+
+                // We can directly assert that these pieces aren't allowed
+                // to overlap each other.
+                for (tx, ty) in t.overlap[&(*ap, *bp)].iter()
+                    .flat_map(|o| o.1.iter())
+                {
+                    solver.assert(&dx._eq(&ctx.from_i64(*tx))
+                                    .and(&[&dy._eq(&ctx.from_i64(*ty))])
+                                    .not());
+                }
+
+                // We build a list of possible adjacencies, then `or` them
+                // together as an assertion at the end.
+                for (tx, ty) in t.adjacent[&(*ap, *bp)].iter() {
+                    adjacent.push(dx._eq(&ctx.from_i64(*tx))
+                                    .and(&[&dy._eq(&ctx.from_i64(*ty))]));
+                }
+            }
+        }
+
+        solver.assert(&adjacent[0]
+                      .or(&adjacent[1..].iter().collect::<Vec<_>>()));
     }
 }
 
