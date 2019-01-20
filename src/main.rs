@@ -49,10 +49,7 @@ fn num_xy_match<'a>(ctx: &'a Context, x: Ast<'a>, y: Ast<'a>,
                     size: usize, table: &HashMap<usize, Vec<(i64, i64)>>) -> Ast<'a> {
 
     let mut e = ctx.from_i64(0);
-    for (score, pts) in table.iter() {
-        if *score == size {
-            continue;
-        }
+    for (score, pts) in table.iter().filter(|(score, _)| **score != size) {
         let o = pts.iter()
             .map(|(tx, ty)| (x._eq(&ctx.from_i64(*tx)),
                              y._eq(&ctx.from_i64(*ty))))
