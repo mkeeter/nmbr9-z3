@@ -267,8 +267,8 @@ impl Stackup {
             return;
         }
 
-        let mut adjacent = Vec::new();
         for (i, (ap, ax, ay)) in pts.iter().enumerate() {
+            let mut adjacent = Vec::new();
             for (bp, bx, by) in pts.iter().skip(i + 1) {
                 let dx = bx.sub(&[&ax]);
                 let dy = by.sub(&[&ay]);
@@ -290,10 +290,12 @@ impl Stackup {
                                     .and(&[&dy._eq(&ctx.from_i64(*ty))]));
                 }
             }
+            if adjacent.len() > 0 {
+                solver.assert(&adjacent[0]
+                              .or(&adjacent[1..].iter().collect::<Vec<_>>()));
+            }
         }
 
-        solver.assert(&adjacent[0]
-                      .or(&adjacent[1..].iter().collect::<Vec<_>>()));
     }
 
     fn add_interlayer_constraints(ctx: &Context, solver: &Solver,
@@ -352,7 +354,7 @@ fn main() {
 
     let mut s = Stackup(Vec::new());
     s.0.push(Vec::new());
-    s.0[0].push(PieceIndex(4));
+    s.0[0].push(PieceIndex(8));
 
     s.0.push(Vec::new());
     s.0[1].push(PieceIndex(0));
