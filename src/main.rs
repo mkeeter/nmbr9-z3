@@ -1,4 +1,3 @@
-extern crate z3;
 use z3::*;
 
 use std::collections::{HashSet, HashMap};
@@ -352,14 +351,15 @@ fn main() {
     let t = Tables::new();
     println!("Done");
 
-    let mut s = Stackup(Vec::new());
-    s.0.push(Vec::new());
-    s.0[0].push(PieceIndex(8));
+    for i in 0..100 {
+        let mut s = Stackup(Vec::new());
+        s.0.push(Vec::new());
+        s.0[0].push(PieceIndex(rand::random::<usize>() % 40));
 
-    s.0.push(Vec::new());
-    s.0[1].push(PieceIndex(0));
-    s.0[1].push(PieceIndex(1));
-    s.0[1].push(PieceIndex(4));
+        s.0.push(Vec::new());
+        s.0[1].push(PieceIndex(rand::random::<usize>() % 40));
+        s.0[1].push(PieceIndex(rand::random::<usize>() % 40));
 
-    s.validate(&t);
+        s.validate(&t);
+    }
 }
