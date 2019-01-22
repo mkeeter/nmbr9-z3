@@ -2,11 +2,17 @@ use z3::*;
 
 use std::collections::{HashSet, HashMap};
 
-/*  A PieceIndex represents a particular piece + rotation
- *  Valid PieceIndex values are in the range 0-39
- *      (10 shapes * 4 rotations)  */
+/*  A PieceIndex represents a particular piece, in the range 0-9 */
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
-struct PieceIndex(usize);
+struct Piece(usize);
+
+/*  A Rotation represents one of four possible rotations */
+#[derive(Eq, PartialEq, Hash, Copy, Clone)]
+struct Rotation(usize);
+
+/*  A PieceIndex is a combination of piece + rotation */
+#[derive(Eq, PartialEq, Hash, Copy, Clone)]
+struct PieceIndex(Piece, Rotation);
 
 struct Tables {
     /*  Every piece's shape */
@@ -54,7 +60,7 @@ impl Tables {
         let mut piece_shapes = HashMap::new();
         for i in 0..shapes.len() {
             for r in 0..4 {
-                let index = PieceIndex(i * 4 + r);
+                let index = PieceIndex(Piece(i), Rotation(r));
                 area.insert(index, shapes[i].len());
                 piece_shapes.insert(index, Self::rotated(&shapes[i], r));
             }
@@ -157,7 +163,7 @@ impl Tables {
 
 // The front of the vec is the top of the stack
 #[derive(Clone)]
-struct Stackup(Vec<Vec<PieceIndex>>);
+struct Stackup(Vec<Vec<Piece>>);
 
 impl Stackup {
     fn validate(&self, t: &Tables) -> bool {
@@ -170,7 +176,7 @@ impl Stackup {
             // (counting every rotation)
             let mut count = HashMap::new();
             for p in self.0.iter().flat_map(|i| i.iter()) {
-                *count.entry(p.0 / 4).or_insert(0) += 1;
+                *count.entry(p.0).or_insert(0) += 1;
             }
             if *count.values().max().unwrap_or(&0) > 2 {
                 return false;
@@ -181,7 +187,7 @@ impl Stackup {
         let areas = self.0.iter()
             .map(|layer|
                  layer.iter()
-                     .map(|p| t.area[p])
+                     .map(|p| t.area[&PieceIndex(*p, Rotation(0))])
                      .sum())
             .collect::<Vec<usize>>();
         if areas.iter().zip(areas.iter().skip(1)).any(|(a, b)| a > b) {
@@ -198,7 +204,8 @@ impl Stackup {
                  .map(|(j, pt)|
                       (*pt,
                        ctx.named_int_const(&format!("x_{}_{}", i, j)),
-                       ctx.named_int_const(&format!("y_{}_{}", i, j))))
+                       ctx.named_int_const(&format!("y_{}_{}", i, j)),
+                       ctx.named_int_const(&format!("r_{}_{}", i, j))))
                  .collect::<Vec<_>>())
             .collect();
 
@@ -220,17 +227,19 @@ impl Stackup {
         }
     }
 
-    fn print_model(model: &Model, layers: &[Vec<(PieceIndex, Ast, Ast)>],
+    fn print_model(model: &Model, layers: &[Vec<(Piece, Ast, Ast, Ast)>],
                    t: &Tables)
     {
         let mut tiles = HashMap::new();
 
         for (z, layer) in layers.iter().enumerate() {
-            for (p, x, y) in layer.iter() {
-                let dx = model.eval(x).and_then(|i| i.as_i64()).unwrap_or(0);
-                let dy = model.eval(y).and_then(|i| i.as_i64()).unwrap_or(0);
-                for (px, py) in t.shapes[p].iter() {
-                    tiles.insert((dx + px, dy + py, z), p.0 / 4);
+            for (p, x, y, r) in layer.iter() {
+                let dx  = model.eval(x).and_then(|i| i.as_i64()).unwrap_or(0);
+                let dy  = model.eval(y).and_then(|i| i.as_i64()).unwrap_or(0);
+                let rot = model.eval(r).and_then(|i| i.as_i64()).unwrap_or(0);
+                let index = PieceIndex(*p, Rotation(rot as usize));
+                for (px, py) in t.shapes[&index].iter() {
+                    tiles.insert((dx + px, dy + py, z), p.0);
                 }
             }
         }
@@ -260,15 +269,15 @@ impl Stackup {
     }
 
     fn add_layer_constraints(ctx: &Context, solver: &Solver,
-                             pts: &[(PieceIndex, Ast, Ast)], t: &Tables) {
+                             pts: &[(Piece, Ast, Ast, Ast)], t: &Tables) {
         // Single-piece layers have no constraints
         if pts.len() < 2 {
             return;
         }
 
-        for (i, (ap, ax, ay)) in pts.iter().enumerate() {
+        for (i, (ap, ax, ay, ar)) in pts.iter().enumerate() {
             let mut adjacent = Vec::new();
-            for (bp, bx, by) in pts.iter().skip(i + 1) {
+            for (bp, bx, by, br) in pts.iter().skip(i + 1) {
                 let dx = bx.sub(&[&ax]);
                 let dy = by.sub(&[&ay]);
 
@@ -298,16 +307,16 @@ impl Stackup {
     }
 
     fn add_interlayer_constraints(ctx: &Context, solver: &Solver,
-                                  above: &[(PieceIndex, Ast, Ast)],
-                                  below: &[(PieceIndex, Ast, Ast)],
+                                  above: &[(Piece, Ast, Ast, Ast)],
+                                  below: &[(Piece, Ast, Ast, Ast)],
                                   t: &Tables)
     {
         let mut count = Vec::new();
         let mut total_area = 0;
         let zero = ctx.from_i64(0);
-        for (ap, ax, ay) in above.iter() {
+        for (ap, ax, ay, ar) in above.iter() {
             total_area += t.area[ap];
-            for (bp, bx, by) in below.iter() {
+            for (bp, bx, by, br) in below.iter() {
                 let dx = bx.sub(&[&ax]);
                 let dy = by.sub(&[&ay]);
 
@@ -354,11 +363,11 @@ fn main() {
     for i in 0..100 {
         let mut s = Stackup(Vec::new());
         s.0.push(Vec::new());
-        s.0[0].push(PieceIndex(rand::random::<usize>() % 40));
+        s.0[0].push(Piece(rand::random::<usize>() % 10));
 
         s.0.push(Vec::new());
-        s.0[1].push(PieceIndex(rand::random::<usize>() % 40));
-        s.0[1].push(PieceIndex(rand::random::<usize>() % 40));
+        s.0[1].push(Piece(rand::random::<usize>() % 10));
+        s.0[1].push(Piece(rand::random::<usize>() % 10));
 
         s.validate(&t);
     }
