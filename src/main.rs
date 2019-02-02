@@ -206,6 +206,19 @@ impl Stackup {
         (bits * 2 + 2) * pieces
     }
 
+    // Stacks this Stackup onto another one, returning None if check() fails
+    fn onto(&self, below: &Stackup, t: &Tables) -> Option<Stackup> {
+        let mut out = self.clone();
+        for layer in below.0.iter() {
+            out.0.push(layer.clone());
+        }
+        if out.check(t) {
+            Some(out)
+        } else {
+            None
+        }
+    }
+
     // Quick check to see whether this stack could be valid
     // (this doesn't prove that it is valid, only that it could be)
     fn check(&self, t: &Tables) -> bool {
