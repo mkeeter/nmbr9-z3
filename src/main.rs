@@ -198,28 +198,38 @@ impl Stackup {
         let cfg = Config::new();
         let ctx = Context::new(&cfg);
 
+        let most_pieces = self.0.iter().map(|v| v.len()).max().unwrap_or(0);
+        let bits = ((most_pieces - 1) as f64 * 4.0 + 1.0).log2().ceil() as u32;
+        let bv_sort = ctx.bitvector_sort(bits);
+
         let pts: Vec<_> = self.0.iter().enumerate()
             .map(|(i, t)| t.iter()
                  .enumerate()
                  .map(|(j, pt)|
                       (*pt,
-                       ctx.named_int_const(&format!("x_{}_{}", i, j)),
-                       ctx.named_int_const(&format!("y_{}_{}", i, j)),
-                       ctx.named_int_const(&format!("r_{}_{}", i, j))))
+                       ctx.named_bitvector_const(&format!("x_{}_{}", i, j), bits),
+                       ctx.named_bitvector_const(&format!("y_{}_{}", i, j), bits),
+                       ctx.named_bitvector_const(&format!("r_{}_{}", i, j), bits)))
                  .collect::<Vec<_>>())
             .collect();
 
-        let solver = Solver::new(&ctx);
+        let solver = Optimize::new(&ctx);
         for layer in pts.iter() {
-            Self::add_layer_constraints(&ctx, &solver, layer, t);
+            Self::add_layer_constraints(&solver, &bv_sort, layer, t);
         }
         for (above, below) in pts.iter().zip(pts.iter().skip(1)) {
-            Self::add_interlayer_constraints(&ctx, &solver, above, below, t);
+            Self::add_interlayer_constraints(&ctx, &solver, &bv_sort,
+                                             above, below, t);
         }
+
+        // Constrain one piece, to reduce the search space
+        solver.assert(&pts[0][0].1._eq(&bv_sort.from_i64(0)));
+        solver.assert(&pts[0][0].2._eq(&bv_sort.from_i64(0)));
+        solver.assert(&pts[0][0].3._eq(&bv_sort.from_i64(0)));
 
         if solver.check() {
             println!("sat");
-            Self::print_model(&solver.get_model(), &pts, t);
+            Self::print_model(&solver.get_model(), &pts, t, bits);
             return true;
         } else {
             println!("unsat");
@@ -228,14 +238,20 @@ impl Stackup {
     }
 
     fn print_model(model: &Model, layers: &[Vec<(Piece, Ast, Ast, Ast)>],
-                   t: &Tables)
+                   t: &Tables, bits: u32)
     {
         let mut tiles = HashMap::new();
 
         for (z, layer) in layers.iter().enumerate() {
             for (p, x, y, r) in layer.iter() {
-                let dx  = model.eval(x).and_then(|i| i.as_i64()).unwrap_or(0);
-                let dy  = model.eval(y).and_then(|i| i.as_i64()).unwrap_or(0);
+                let mut dx  = model.eval(x).and_then(|i| i.as_i64()).unwrap_or(0);
+                if dx & (1 << (bits - 1)) != 0 {
+                    dx -= 1 << bits;
+                }
+                let mut dy  = model.eval(y).and_then(|i| i.as_i64()).unwrap_or(0);
+                if dy & (1 << (bits - 1)) != 0 {
+                    dy -= 1 << bits;
+                }
                 let rot = model.eval(r).and_then(|i| i.as_i64()).unwrap_or(0);
                 let index = PieceIndex(*p, Rotation(rot as usize));
                 for (px, py) in t.shapes[&index].iter() {
@@ -268,7 +284,7 @@ impl Stackup {
         }
     }
 
-    fn add_layer_constraints(ctx: &Context, solver: &Solver,
+    fn add_layer_constraints(solver: &Optimize, bv_sort: &Sort,
                              pts: &[(Piece, Ast, Ast, Ast)], t: &Tables) {
         // Single-piece layers have no constraints
         if pts.len() < 2 {
@@ -278,13 +294,13 @@ impl Stackup {
         for (i, (ap, ax, ay, ar)) in pts.iter().enumerate() {
             let mut adjacent = Vec::new();
             for (bp, bx, by, br) in pts.iter().skip(i + 1) {
-                let dx = bx.sub(&[&ax]);
-                let dy = by.sub(&[&ay]);
+                let dx = bx.bvsub(&ax);
+                let dy = by.bvsub(&ay);
 
                 for rot_a in 0..4 {
                     for rot_b in 0..4 {
-                        let rot_matched = ar._eq(&ctx.from_i64(rot_a))
-                            .and(&[&br._eq(&ctx.from_i64(rot_b))]);
+                        let rot_matched = ar._eq(&bv_sort.from_i64(rot_a))
+                            .and(&[&br._eq(&bv_sort.from_i64(rot_b))]);
 
                         let key = (PieceIndex(*ap, Rotation(rot_a as usize)),
                                    PieceIndex(*bp, Rotation(rot_b as usize)));
@@ -295,8 +311,8 @@ impl Stackup {
                             .iter()
                             .flat_map(|o| o.1.iter())
                         {
-                            overlap.push(dx._eq(&ctx.from_i64(*tx))
-                                           .and(&[&dy._eq(&ctx.from_i64(*ty))]));
+                            overlap.push(dx._eq(&bv_sort.from_i64(*tx))
+                                           .and(&[&dy._eq(&bv_sort.from_i64(*ty))]));
                         }
                         // Build a clause saying that we have an overlap (and
                         // that the rotation is valid), then assert not that.
@@ -309,8 +325,8 @@ impl Stackup {
                         // We build a list of possible adjacencies, then `or` them
                         // together as an assertion at the end.
                         for (tx, ty) in t.adjacent[&key].iter() {
-                            adjacent.push(dx._eq(&ctx.from_i64(*tx))
-                                            .and(&[&dy._eq(&ctx.from_i64(*ty)),
+                            adjacent.push(dx._eq(&bv_sort.from_i64(*tx))
+                                            .and(&[&dy._eq(&bv_sort.from_i64(*ty)),
                                                    &rot_matched]));
                         }
                     }
@@ -324,7 +340,7 @@ impl Stackup {
 
     }
 
-    fn add_interlayer_constraints(ctx: &Context, solver: &Solver,
+    fn add_interlayer_constraints(ctx: &Context, solver: &Optimize, bv_sort: &Sort,
                                   above: &[(Piece, Ast, Ast, Ast)],
                                   below: &[(Piece, Ast, Ast, Ast)],
                                   t: &Tables)
@@ -336,13 +352,13 @@ impl Stackup {
             let area = t.area[&PieceIndex(*ap, Rotation(0))];
             total_area += area;
             for (bp, bx, by, br) in below.iter() {
-                let dx = bx.sub(&[&ax]);
-                let dy = by.sub(&[&ay]);
+                let dx = bx.bvsub(&ax);
+                let dy = by.bvsub(&ay);
 
                 for rot_a in 0..4 {
                     for rot_b in 0..4 {
-                        let rot_matched = ar._eq(&ctx.from_i64(rot_a))
-                            .and(&[&br._eq(&ctx.from_i64(rot_b))]);
+                        let rot_matched = ar._eq(&bv_sort.from_i64(rot_a))
+                            .and(&[&br._eq(&bv_sort.from_i64(rot_b))]);
 
                         let key = (PieceIndex(*ap, Rotation(rot_a as usize)),
                                    PieceIndex(*bp, Rotation(rot_b as usize)));
@@ -356,8 +372,8 @@ impl Stackup {
                             let score = ctx.from_i64(*score as i64);
                             for (tx, ty) in ts.iter() {
                                 count.push(
-                                    dx._eq(&ctx.from_i64(*tx))
-                                       .and(&[&dy._eq(&ctx.from_i64(*ty)),
+                                    dx._eq(&bv_sort.from_i64(*tx))
+                                       .and(&[&dy._eq(&bv_sort.from_i64(*ty)),
                                               &rot_matched])
                                        .ite(&score, &zero));
                             }
