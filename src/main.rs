@@ -203,6 +203,7 @@ impl Stackup {
         let most_pieces = self.0.iter().map(|v| v.len()).max().unwrap_or(0);
         let bits = ((most_pieces - 1) as f64 * 4.0 + 1.0).log2().ceil() as u32;
         let bv_sort = ctx.bitvector_sort(bits);
+        let rot_sort = ctx.bitvector_sort(2);
 
         let pts: Vec<_> = self.0.iter().enumerate()
             .map(|(i, t)| t.iter()
@@ -211,23 +212,23 @@ impl Stackup {
                       (*pt,
                        ctx.named_bitvector_const(&format!("x_{}_{}", i, j), bits),
                        ctx.named_bitvector_const(&format!("y_{}_{}", i, j), bits),
-                       ctx.named_bitvector_const(&format!("r_{}_{}", i, j), bits)))
+                       ctx.named_bitvector_const(&format!("r_{}_{}", i, j), 2)))
                  .collect::<Vec<_>>())
             .collect();
 
         let solver = Optimize::new(&ctx);
         for layer in pts.iter() {
-            Self::add_layer_constraints(&solver, &bv_sort, layer, t);
+            Self::add_layer_constraints(&solver, &bv_sort, &rot_sort, layer, t);
         }
         for (above, below) in pts.iter().zip(pts.iter().skip(1)) {
-            Self::add_interlayer_constraints(&ctx, &solver, &bv_sort,
+            Self::add_interlayer_constraints(&ctx, &solver, &bv_sort, &rot_sort,
                                              above, below, t);
         }
 
         // Constrain one piece, to reduce the search space
         solver.assert(&pts[0][0].1._eq(&bv_sort.from_i64(0)));
         solver.assert(&pts[0][0].2._eq(&bv_sort.from_i64(0)));
-        solver.assert(&pts[0][0].3._eq(&bv_sort.from_i64(0)));
+        solver.assert(&pts[0][0].3._eq(&rot_sort.from_i64(0)));
 
         if solver.check() {
             println!("sat");
@@ -286,7 +287,7 @@ impl Stackup {
         }
     }
 
-    fn add_layer_constraints(solver: &Optimize, bv_sort: &Sort,
+    fn add_layer_constraints(solver: &Optimize, bv_sort: &Sort, rot_sort: &Sort,
                              pts: &[(Piece, Ast, Ast, Ast)], t: &Tables) {
         // Single-piece layers have no constraints
         if pts.len() < 2 {
@@ -301,8 +302,8 @@ impl Stackup {
 
                 for rot_a in 0..4 {
                     for rot_b in 0..4 {
-                        let rot_matched = ar._eq(&bv_sort.from_i64(rot_a))
-                            .and(&[&br._eq(&bv_sort.from_i64(rot_b))]);
+                        let rot_matched = ar._eq(&rot_sort.from_i64(rot_a))
+                            .and(&[&br._eq(&rot_sort.from_i64(rot_b))]);
 
                         let key = (PieceIndex(*ap, Rotation(rot_a as usize)),
                                    PieceIndex(*bp, Rotation(rot_b as usize)));
@@ -342,7 +343,8 @@ impl Stackup {
 
     }
 
-    fn add_interlayer_constraints(ctx: &Context, solver: &Optimize, bv_sort: &Sort,
+    fn add_interlayer_constraints(ctx: &Context, solver: &Optimize,
+                                  bv_sort: &Sort, rot_sort: &Sort,
                                   above: &[(Piece, Ast, Ast, Ast)],
                                   below: &[(Piece, Ast, Ast, Ast)],
                                   t: &Tables)
@@ -359,8 +361,8 @@ impl Stackup {
 
                 for rot_a in 0..4 {
                     for rot_b in 0..4 {
-                        let rot_matched = ar._eq(&bv_sort.from_i64(rot_a))
-                            .and(&[&br._eq(&bv_sort.from_i64(rot_b))]);
+                        let rot_matched = ar._eq(&rot_sort.from_i64(rot_a))
+                            .and(&[&br._eq(&rot_sort.from_i64(rot_b))]);
 
                         let key = (PieceIndex(*ap, Rotation(rot_a as usize)),
                                    PieceIndex(*bp, Rotation(rot_b as usize)));
@@ -428,6 +430,11 @@ fn main() {
         s.0.push(Vec::new());
         s.0[1].push(Piece(rng.gen::<usize>() % 10));
         s.0[1].push(Piece(rng.gen::<usize>() % 10));
+
+        s.0.push(Vec::new());
+        s.0[2].push(Piece(rng.gen::<usize>() % 10));
+        s.0[2].push(Piece(rng.gen::<usize>() % 10));
+        s.0[2].push(Piece(rng.gen::<usize>() % 10));
 
         s.validate(&t);
     }
