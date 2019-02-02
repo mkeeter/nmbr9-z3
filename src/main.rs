@@ -3,7 +3,7 @@ use z3::*;
 use std::collections::{HashSet, HashMap};
 
 /*  A PieceIndex represents a particular piece, in the range 0-9 */
-#[derive(Eq, PartialEq, Hash, Copy, Clone)]
+#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
 struct Piece(usize);
 
 /*  A Rotation represents one of four possible rotations */
@@ -15,6 +15,7 @@ struct Rotation(usize);
 struct PieceIndex(Piece, Rotation);
 
 use rand::prelude::*;
+use rayon::prelude::*;
 
 struct Tables {
     /*  Every piece's shape */
@@ -164,7 +165,7 @@ impl Tables {
 }
 
 // The front of the vec is the top of the stack
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Stackup(Vec<Vec<Piece>>);
 
 impl Stackup {
@@ -208,52 +209,53 @@ impl Stackup {
 
     // Stacks this Stackup onto another one, returning None if check() fails
     fn onto(&self, below: &Stackup, t: &Tables) -> Option<Stackup> {
+        assert!(self.0.len() > 0);
+        assert!(below.0.len() > 0);
+        assert!(self.0[0].len() > 0);
+        assert!(below.0[0].len() > 0);
+
+        // Only the top layer is allowed to have less than two pieces
+        if below.0[0].len() < 2 {
+            return None;
+        }
+
+        // Area must be monotonically decreasing
+        let area_above: usize = self.0.last()
+            .unwrap()
+            .iter()
+            .map(|p| t.area[&PieceIndex(*p, Rotation(0))])
+            .sum();
+        let area_below: usize = below.0[0]
+            .iter()
+            .map(|p| t.area[&PieceIndex(*p, Rotation(0))])
+            .sum();
+        if area_below < area_above {
+            return None;
+        }
+
+        // We can't have more than two of any particular piece
+        let mut count = [0; 10];
+        for layer in self.0.iter().chain(below.0.iter()) {
+            for v in layer.iter() {
+                if count[v.0] == 2 {
+                    return None;
+                } else {
+                    count[v.0] += 1;
+                }
+            }
+        }
+
+        // Otherwise, we're good - build the new Stackup and return it
         let mut out = self.clone();
         for layer in below.0.iter() {
             out.0.push(layer.clone());
         }
-        if out.check(t) {
-            Some(out)
-        } else {
-            None
-        }
-    }
-
-    // Quick check to see whether this stack could be valid
-    // (this doesn't prove that it is valid, only that it could be)
-    fn check(&self, t: &Tables) -> bool {
-        // Only the top layer is allowed to have less than two pieces
-        if self.0.iter().skip(1).any(|layer| layer.len() < 2) {
-            return false;
-        }
-
-        {   // We're only allowed to have a maximum of 2 of each piece
-            // (counting every rotation)
-            let mut count = HashMap::new();
-            for p in self.0.iter().flat_map(|i| i.iter()) {
-                *count.entry(p.0).or_insert(0) += 1;
-            }
-            if *count.values().max().unwrap_or(&0) > 2 {
-                return false;
-            }
-        }
-
-        // Area must be monotonically decreasing
-        let areas = self.0.iter()
-            .map(|layer|
-                 layer.iter()
-                     .map(|p| t.area[&PieceIndex(*p, Rotation(0))])
-                     .sum())
-            .collect::<Vec<usize>>();
-        if areas.iter().zip(areas.iter().skip(1)).any(|(a, b)| a > b) {
-            return false;
-        }
-
-        return true;
+        Some(out)
     }
 
     // Expensive validity check, using Z3
     fn validate(&self, t: &Tables) -> bool {
+        println!("Checking {:?}", self);
         let cfg = Config::new();
         let ctx = Context::new(&cfg);
 
@@ -466,6 +468,27 @@ fn main() {
     println!("Building tables!");
     let t = Tables::new();
     println!("Done");
+
+    let mut base = (1..(3 as usize).pow(5))
+        .map(|t| Stackup::from_ternary(t))
+        .collect::<Vec<Stackup>>();
+
+    let mut targets = Vec::new();
+    for (i, above) in base.iter().enumerate() {
+        println!("{}: {}", i, targets.len());
+        let mut v = base.par_iter()
+            .filter_map(|b| above.onto(b, &t))
+            .collect::<Vec<_>>();
+        targets.append(&mut v);
+    }
+    targets.sort_by_key(|s| s.model_size());
+    let targets = targets.iter()
+        .filter(|b| b.validate(&t))
+        .collect::<Vec<_>>();
+
+    println!("Got {} targets", targets.len());
+    for t in targets {
+    }
 
     let seed = [
         1, 2, 3, 4,
