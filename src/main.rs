@@ -14,6 +14,8 @@ struct Rotation(usize);
 #[derive(Eq, PartialEq, Hash, Copy, Clone)]
 struct PieceIndex(Piece, Rotation);
 
+use rand::prelude::*;
+
 struct Tables {
     /*  Every piece's shape */
     shapes: HashMap<PieceIndex, Vec<(i64, i64)>>,
@@ -406,14 +408,26 @@ fn main() {
     let t = Tables::new();
     println!("Done");
 
-    for i in 0..100 {
+    let seed = [
+        1, 2, 3, 4,
+        1, 2, 3, 4,
+        1, 2, 3, 4,
+        1, 2, 3, 4,
+        1, 2, 3, 4,
+        1, 2, 3, 4,
+        1, 2, 3, 4,
+        1, 2, 3, 4,
+    ];
+    let mut rng: StdRng = SeedableRng::from_seed(seed);
+
+    for i in 0..10 {
         let mut s = Stackup(Vec::new());
         s.0.push(Vec::new());
-        s.0[0].push(Piece(rand::random::<usize>() % 10));
+        s.0[0].push(Piece(rng.gen::<usize>() % 10));
 
         s.0.push(Vec::new());
-        s.0[1].push(Piece(rand::random::<usize>() % 10));
-        s.0[1].push(Piece(rand::random::<usize>() % 10));
+        s.0[1].push(Piece(rng.gen::<usize>() % 10));
+        s.0[1].push(Piece(rng.gen::<usize>() % 10));
 
         s.validate(&t);
     }
