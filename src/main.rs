@@ -168,7 +168,47 @@ impl Tables {
 struct Stackup(Vec<Vec<Piece>>);
 
 impl Stackup {
-    fn validate(&self, t: &Tables) -> bool {
+    fn from_ternary(mut i: usize) -> Stackup {
+        let mut layer0 = Vec::new();
+        let mut j = 0;
+        while i > 0 {
+            for k in 0..(i % 3) {
+                layer0.push(Piece(j));
+            }
+            j += 1;
+            i /= 3;
+        }
+        Stackup(vec![layer0])
+    }
+
+    fn as_u128(&self) -> u128 {
+        let mut out: u128 = 0;
+        for (z, layer) in self.0.iter().enumerate() {
+            for p in layer.iter() {
+                if out & ((0xF << (p.0 * 8)) as u128) == 0 {
+                    out |= ((z + 1) << (p.0 * 8)) as u128;
+                } else {
+                    out |= ((z + 1) << (p.0 * 8 + 4)) as u128;
+                }
+            }
+        }
+        out
+    }
+
+    fn xy_bits(&self) -> u32 {
+        let most_pieces = self.0.iter().map(|v| v.len()).max().unwrap_or(0);
+        ((most_pieces - 1) as f64 * 4.0 + 1.0).log2().ceil() as u32
+    }
+
+    fn model_size(&self) -> u32 {
+        let bits = self.xy_bits();
+        let pieces: u32 = self.0.iter().map(|v| v.len() as u32).sum();
+        (bits * 2 + 2) * pieces
+    }
+
+    // Quick check to see whether this stack could be valid
+    // (this doesn't prove that it is valid, only that it could be)
+    fn check(&self, t: &Tables) -> bool {
         // Only the top layer is allowed to have less than two pieces
         if self.0.iter().skip(1).any(|layer| layer.len() < 2) {
             return false;
@@ -196,12 +236,16 @@ impl Stackup {
             return false;
         }
 
-        // Otherwise, it's time to break out the big guns!
+        return true;
+    }
+
+    // Expensive validity check, using Z3
+    fn validate(&self, t: &Tables) -> bool {
         let cfg = Config::new();
         let ctx = Context::new(&cfg);
 
         let most_pieces = self.0.iter().map(|v| v.len()).max().unwrap_or(0);
-        let bits = ((most_pieces - 1) as f64 * 4.0 + 1.0).log2().ceil() as u32;
+        let bits = self.xy_bits();
         let bv_sort = ctx.bitvector_sort(bits);
         let rot_sort = ctx.bitvector_sort(2);
 
@@ -430,11 +474,6 @@ fn main() {
         s.0.push(Vec::new());
         s.0[1].push(Piece(rng.gen::<usize>() % 10));
         s.0[1].push(Piece(rng.gen::<usize>() % 10));
-
-        s.0.push(Vec::new());
-        s.0[2].push(Piece(rng.gen::<usize>() % 10));
-        s.0[2].push(Piece(rng.gen::<usize>() % 10));
-        s.0[2].push(Piece(rng.gen::<usize>() % 10));
 
         s.validate(&t);
     }
