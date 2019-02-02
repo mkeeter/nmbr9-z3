@@ -6,6 +6,6 @@ edition = "2018"
 
 [dependencies]
 itertools = "0.8"
-z3 = "0.3.2"
+z3 = { git = "https://github.com/prove-rs/z3.rs" }
 rayon = "1.0"
 rand = "0.6"

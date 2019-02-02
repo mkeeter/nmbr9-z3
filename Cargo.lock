@@ -117,7 +117,7 @@ dependencies = [
  "itertools 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "rayon 1.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "z3 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "z3 0.3.2 (git+https://github.com/prove-rs/z3.rs)",
 ]
 
 [[package]]
@@ -287,17 +287,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "z3"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/prove-rs/z3.rs#b39aa9f8ee3bc63a0e5feca14e679f16ce084921"
 dependencies = [
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "z3-sys 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "z3-sys 0.4.0 (git+https://github.com/prove-rs/z3.rs)",
 ]
 
 [[package]]
 name = "z3-sys"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/prove-rs/z3.rs#b39aa9f8ee3bc63a0e5feca14e679f16ce084921"
 
 [metadata]
 "checksum arrayvec 0.4.10 (registry+https://github.com/rust-lang/crates.io-index)" = "92c7fb76bc8826a8b33b4ee5bb07a247a81e76764ab4d55e8f73e3a4d8808c71"
@@ -336,5 +336,5 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum winapi 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)" = "92c1eb33641e276cfa214a0522acad57be5c56b10cb348b3c5117db75f3ac4b0"
 "checksum winapi-i686-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
 "checksum winapi-x86_64-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
-"checksum z3 0.3.2 (registry+https://github.com/rust-lang/crates.io-index)" = "64b756784ad9666b8128c486d6f3eee4d9f7627d8af54ff4502d178811648f09"
-"checksum z3-sys 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "1dff903712349c6fa80acbd690641acd98f170a2e01b6f28f8fdcf850e2d4500"
+"checksum z3 0.3.2 (git+https://github.com/prove-rs/z3.rs)" = "<none>"
+"checksum z3-sys 0.4.0 (git+https://github.com/prove-rs/z3.rs)" = "<none>"
