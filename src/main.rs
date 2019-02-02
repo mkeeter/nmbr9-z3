@@ -281,21 +281,39 @@ impl Stackup {
                 let dx = bx.sub(&[&ax]);
                 let dy = by.sub(&[&ay]);
 
-                // We can directly assert that these pieces aren't allowed
-                // to overlap each other.
-                for (tx, ty) in t.overlap[&(*ap, *bp)].iter()
-                    .flat_map(|o| o.1.iter())
-                {
-                    solver.assert(&dx._eq(&ctx.from_i64(*tx))
-                                    .and(&[&dy._eq(&ctx.from_i64(*ty))])
-                                    .not());
-                }
+                for rot_a in 0..4 {
+                    for rot_b in 0..4 {
+                        let rot_matched = ar._eq(&ctx.from_i64(rot_a))
+                            .and(&[&br._eq(&ctx.from_i64(rot_b))]);
 
-                // We build a list of possible adjacencies, then `or` them
-                // together as an assertion at the end.
-                for (tx, ty) in t.adjacent[&(*ap, *bp)].iter() {
-                    adjacent.push(dx._eq(&ctx.from_i64(*tx))
-                                    .and(&[&dy._eq(&ctx.from_i64(*ty))]));
+                        let key = (PieceIndex(*ap, Rotation(rot_a as usize)),
+                                   PieceIndex(*bp, Rotation(rot_b as usize)));
+                        let mut overlap = Vec::new();
+                        // We can directly assert that these pieces aren't allowed
+                        // to overlap each other.
+                        for (tx, ty) in t.overlap[&key]
+                            .iter()
+                            .flat_map(|o| o.1.iter())
+                        {
+                            overlap.push(dx._eq(&ctx.from_i64(*tx))
+                                           .and(&[&dy._eq(&ctx.from_i64(*ty))]));
+                        }
+                        // Build a clause saying that we have an overlap (and
+                        // that the rotation is valid), then assert not that.
+                        solver.assert(&overlap[0]
+                            .or(&overlap[1..].iter().collect::<Vec<_>>())
+                            .and(&[&rot_matched])
+                            .not());
+
+
+                        // We build a list of possible adjacencies, then `or` them
+                        // together as an assertion at the end.
+                        for (tx, ty) in t.adjacent[&key].iter() {
+                            adjacent.push(dx._eq(&ctx.from_i64(*tx))
+                                            .and(&[&dy._eq(&ctx.from_i64(*ty)),
+                                                   &rot_matched]));
+                        }
+                    }
                 }
             }
             if adjacent.len() > 0 {
@@ -315,23 +333,35 @@ impl Stackup {
         let mut total_area = 0;
         let zero = ctx.from_i64(0);
         for (ap, ax, ay, ar) in above.iter() {
-            total_area += t.area[ap];
+            let area = t.area[&PieceIndex(*ap, Rotation(0))];
+            total_area += area;
             for (bp, bx, by, br) in below.iter() {
                 let dx = bx.sub(&[&ax]);
                 let dy = by.sub(&[&ay]);
 
-                for (score, ts) in t.overlap[&(*ap, *bp)].iter() {
-                    // Skip the fully-overlapping areas, because
-                    // they violate the above-two constraint.
-                    if *score == t.area[ap] {
-                        continue;
-                    }
-                    let score = ctx.from_i64(*score as i64);
-                    for (tx, ty) in ts.iter() {
-                        count.push(
-                            dx._eq(&ctx.from_i64(*tx))
-                               .and(&[&dy._eq(&ctx.from_i64(*ty))])
-                               .ite(&score, &zero));
+                for rot_a in 0..4 {
+                    for rot_b in 0..4 {
+                        let rot_matched = ar._eq(&ctx.from_i64(rot_a))
+                            .and(&[&br._eq(&ctx.from_i64(rot_b))]);
+
+                        let key = (PieceIndex(*ap, Rotation(rot_a as usize)),
+                                   PieceIndex(*bp, Rotation(rot_b as usize)));
+
+                        for (score, ts) in t.overlap[&key].iter() {
+                            // Skip the fully-overlapping areas, because
+                            // they violate the above-two constraint.
+                            if *score == area {
+                                continue;
+                            }
+                            let score = ctx.from_i64(*score as i64);
+                            for (tx, ty) in ts.iter() {
+                                count.push(
+                                    dx._eq(&ctx.from_i64(*tx))
+                                       .and(&[&dy._eq(&ctx.from_i64(*ty)),
+                                              &rot_matched])
+                                       .ite(&score, &zero));
+                            }
+                        }
                     }
                 }
             }
